@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { PHASES, FIELD_STATUS, FACT_PRIORITY, createNewConversation } from './conversationState.js';
 import { AIServiceSelector } from './aiServiceSelector.js';
 import { AIResponseGenerator } from './aiResponseGenerator.js';
+import { globalConversations } from './globalState.js';
 
 export class ChatHandler {
 
@@ -15,7 +16,7 @@ export class ChatHandler {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     
     // In-memory storage for now
-    this.conversations = new Map();
+    this.conversations = globalConversations;
     this.aiSelector = new AIServiceSelector();
     this.aiResponseGenerator = new AIResponseGenerator();
   }
