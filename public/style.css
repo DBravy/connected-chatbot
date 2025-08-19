@@ -1,0 +1,506 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background-color: #f5f5f5;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Main app container */
+.app-container {
+    display: flex;
+    height: 100vh;
+    max-width: 1400px;
+    margin: 0 auto;
+    background: white;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+}
+
+/* Chat section (left side) */
+.chat-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #e5e5e5;
+    min-width: 400px;
+}
+
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: white;
+}
+
+.chat-header {
+    padding: 20px;
+    background: white;
+    color: #333;
+    border-bottom: 1px solid #e5e5e5;
+}
+
+.chat-header h1 {
+    margin-bottom: 5px;
+    font-weight: 600;
+    font-size: 24px;
+}
+
+.chat-header p {
+    font-weight: 400;
+    color: #666;
+    font-size: 14px;
+}
+
+.chat-messages {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    background: white;
+}
+
+.message {
+    margin-bottom: 15px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    max-width: 80%;
+    line-height: 1.4;
+}
+
+.user-message {
+    background: #007AFF;
+    color: white;
+    margin-left: auto;
+    border-bottom-right-radius: 4px;
+}
+
+.bot-message {
+    background: #f1f1f1;
+    color: #333;
+    border-bottom-left-radius: 4px;
+}
+
+.chat-input-container {
+    display: flex;
+    padding: 20px;
+    border-top: 1px solid #e5e5e5;
+    background: white;
+}
+
+#message-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    font-size: 16px;
+    background: white;
+}
+
+#message-input:focus {
+    outline: none;
+    border-color: #007AFF;
+}
+
+#send-button {
+    margin-left: 10px;
+    padding: 12px 24px;
+    background: #007AFF;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+#send-button:hover {
+    background: #0056CC;
+}
+
+#send-button:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+}
+
+/* Itinerary sidebar (right side) */
+.itinerary-section {
+    width: 450px;
+    background: #f8f9fa;
+    border-left: 1px solid #e5e5e5;
+    display: flex;
+    flex-direction: column;
+    transition: width 0.8s ease, height 0.3s ease;
+}
+
+.itinerary-section.collapsed {
+    width: 0;
+    overflow: hidden;
+}
+
+.itinerary-header {
+    padding: 20px;
+    background: white;
+    border-bottom: 1px solid #e5e5e5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.itinerary-header h2 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+}
+
+.toggle-btn {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: #666;
+    padding: 5px;
+    border-radius: 4px;
+}
+
+.toggle-btn:hover {
+    background: #f0f0f0;
+}
+
+.itinerary-content {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    opacity: 1;
+    transition: opacity 0.3s ease;
+}
+
+/* Fade-in sequencing: content hidden while sidebar is collapsed or animating open */
+.itinerary-section.collapsed .itinerary-content {
+    opacity: 0;
+}
+
+/* On desktop: after width transition completes (~0.3s), fade content */
+@media (min-width: 769px) {
+    .itinerary-section:not(.collapsed) .itinerary-content {
+        transition-delay: 0.3s;
+    }
+}
+
+/* On mobile: height transition is used, match delay */
+@media (max-width: 768px) {
+    .itinerary-section:not(.collapsed) .itinerary-content {
+        transition-delay: 0.3s;
+    }
+}
+
+.itinerary-placeholder {
+    text-align: center;
+    color: #999;
+    padding: 40px 20px;
+}
+
+/* Trip summary - matches OG website */
+.trip-summary {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 24px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.trip-summary h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #1e293b;
+}
+
+.trip-details {
+    font-size: 14px;
+    color: #64748b;
+    line-height: 1.5;
+}
+
+.trip-details p {
+    margin-bottom: 6px;
+}
+
+/* Day sections - matches OG accordion style */
+.day-section {
+    margin-bottom: 16px;
+}
+
+.day-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    margin-top: 16px;
+    cursor: pointer;
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+}
+
+.day-header:hover {
+    opacity: 0.8;
+}
+
+.day-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #d1d5db;
+    flex-shrink: 0;
+}
+
+.day-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.day-count {
+    font-size: 14px;
+    color: #64748b;
+    margin-left: 8px;
+}
+
+.day-content {
+    border-left: 4px solid #e5e7eb;
+    padding-left: 16px;
+    margin-left: 4px;
+    padding-bottom: 0;
+}
+
+.day-services {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Service cards - exact match to OG website */
+.service-card {
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    overflow: hidden;
+}
+
+.service-card-content {
+    padding: 8px 16px;
+}
+
+.service-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.service-time {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.service-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.service-action-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #e2e8f0;
+    background: white;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.service-action-btn:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+}
+
+.service-action-btn svg {
+    width: 8px;
+    height: 8px;
+    color: #64748b;
+}
+
+.service-main {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.service-image {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+}
+
+.service-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+    line-height: 1.3;
+}
+
+.service-description {
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.4;
+    margin-bottom: 8px;
+}
+
+.service-pricing {
+    font-size: 14px;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.service-price-per-person {
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.service-price-separator {
+    color: #cbd5e1;
+}
+
+.no-events {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: white;
+    justify-content: center;
+    text-align: center;
+}
+
+.no-events-icon {
+    width: 16px;
+    height: 16px;
+    color: #64748b;
+}
+
+.no-events-text {
+    font-size: 14px;
+    color: #64748b;
+}
+
+/* Confirmation states */
+.service-card.confirmed {
+    border-color: #22c55e;
+    background: #f0fdf4;
+}
+
+.service-card.pending {
+    border-color: #f59e0b;
+    background: #fffbeb;
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+    .itinerary-section {
+        width: 350px;
+    }
+}
+
+/* Loading indicator styles */
+.loading-indicator {
+    margin-bottom: 15px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    max-width: 80%;
+    background: #f1f1f1;
+    color: #333;
+    border-bottom-left-radius: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.loading-text {
+    font-style: italic;
+    color: #666;
+}
+
+.typing-dots {
+    display: flex;
+    gap: 4px;
+}
+
+.typing-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #666;
+    animation: typing 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.typing-dot:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes typing {
+    0%, 80%, 100% {
+        transform: scale(0.8);
+        opacity: 0.5;
+    }
+    40% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@media (max-width: 768px) {
+    .app-container {
+        flex-direction: column;
+    }
+    
+    .chat-section {
+        min-width: auto;
+        flex: 1;
+    }
+    
+    .itinerary-section {
+        width: 100%;
+        height: 300px;
+        border-left: none;
+        border-top: 1px solid #e5e5e5;
+    }
+    
+    .itinerary-section.collapsed {
+        height: 50px;
+    }
+    
+    .chat-container {
+        height: calc(100% - 300px);
+    }
+}

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bachelor Party Planner Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Chat Section -->
+        <div class="chat-section">
+            <div class="chat-container">
+                <div class="chat-header">
+                    <h1>Bachelor Party Planner</h1>
+                    <p>Let's plan your epic bachelor party!</p>
+                </div>
+                
+                <div id="chat-messages" class="chat-messages">
+                    <!-- Messages will be added here -->
+                </div>
+                
+                <div class="chat-input-container">
+                    <input type="text" id="message-input" placeholder="Tell me about your bachelor party..." />
+                    <button id="send-button">Send</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Itinerary Sidebar -->
+        <div class="itinerary-section collapsed" id="itinerary-sidebar">
+            <div class="itinerary-header">
+                <h2>Your Trip Itinerary</h2>
+                <button id="toggle-sidebar" class="toggle-btn">☰</button>
+            </div>
+            
+            <div class="itinerary-content" id="itinerary-content">
+                <div class="itinerary-placeholder">
+                    <p>Start chatting to build your itinerary!</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
