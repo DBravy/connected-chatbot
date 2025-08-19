@@ -1,4 +1,4 @@
-import { ChatHandler } from '../chatHandler.js';
+import { ChatHandler } from './chatHandler.js';
 
 const chatHandler = new ChatHandler();
 
@@ -31,6 +31,9 @@ export default async function handler(req, res) {
     res.status(200).json(result);
   } catch (error) {
     console.error('Chat API error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      error: 'Internal server error',
+      details: error.message 
+    });
   }
 }

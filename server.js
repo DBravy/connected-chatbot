@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { ChatHandler } from './lib/chatHandler.js';
+import { ChatHandler } from './api/chatHandler.js';
 
 dotenv.config();
 

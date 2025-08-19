@@ -1,4 +1,4 @@
-import { ChatHandler } from './lib/chatHandler.js';
+import { ChatHandler } from './api/chatHandler.js';
 import dotenv from 'dotenv';
 
 dotenv.config();

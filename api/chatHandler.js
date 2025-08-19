@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { PHASES, FIELD_STATUS, FACT_PRIORITY, createNewConversation } from './conversationState.js';
-import { AIServiceSelector } from '../api/aiServiceSelector.js';
-import { AIResponseGenerator } from '../api/aiResponseGenerator.js';
+import { AIServiceSelector } from './aiServiceSelector.js';
+import { AIResponseGenerator } from './aiResponseGenerator.js';
 
 export class ChatHandler {
 
