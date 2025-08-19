@@ -20,14 +20,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { conversationId, message } = req.body;
+    const { conversationId, message, snapshot } = req.body;
     
     if (!conversationId || !message) {
       res.status(400).json({ error: 'Missing required fields' });
       return;
     }
 
-    const result = await chatHandler.handleMessage(conversationId, message);
+    const result = await chatHandler.handleMessage(conversationId, message, snapshot);
     res.status(200).json(result);
   } catch (error) {
     console.error('Chat API error:', error);

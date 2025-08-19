@@ -87,133 +87,133 @@ export class ChatHandler {
   }
   
   // --- NEW: rebuild used services from all saved days (safer than delete) ---
-rebuildUsedServices(conversation) {
-  this.ensureUsedServicesSet(conversation);
-  const used = new Set();
-  const all = conversation.selectedServices || [];
-  all.forEach(day =>
-    (day?.selectedServices || []).forEach(s => { if (s?.serviceId) used.add(String(s.serviceId)); })
-  );
-  conversation.dayByDayPlanning.usedServices = used;
-}
-
-// --- NEW: convert ordinal/word to number (1..10 basic) ---
-wordToNumber(word) {
-  const map = {
-    'one':1,'first':1,
-    'two':2,'second':2,
-    'three':3,'third':3,
-    'four':4,'fourth':4,
-    'five':5,'fifth':5,
-    'six':6,'sixth':6,
-    'seven':7,'seventh':7,
-    'eight':8,'eighth':8,
-    'nine':9,'ninth':9,
-    'ten':10,'tenth':10
-  };
-  return map[word] || null;
-}
-
-// --- NEW: parse a concrete date from free text (YYYY-MM-DD | M/D | Month D) ---
-parseExplicitDateFromText(text) {
-  const t = (text || '').trim();
-
-  // YYYY-MM-DD
-  let m = t.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
-  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
-
-  // M/D or MM/DD (optionally with year)
-  m = t.match(/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/);
-  if (m) {
-    const y = m[3] ? Number(m[3].length === 2 ? ('20' + m[3]) : m[3]) : new Date().getFullYear();
-    return new Date(y, Number(m[1]) - 1, Number(m[2]), 12, 0, 0);
+  rebuildUsedServices(conversation) {
+    this.ensureUsedServicesSet(conversation);
+    const used = new Set();
+    const all = conversation.selectedServices || [];
+    all.forEach(day =>
+      (day?.selectedServices || []).forEach(s => { if (s?.serviceId) used.add(String(s.serviceId)); })
+    );
+    conversation.dayByDayPlanning.usedServices = used;
   }
 
-  // Month name + day
-  m = t.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,\s*(\d{4}))?\b/i);
-  if (m) {
-    const monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
-    const month = monthNames.indexOf(m[1].toLowerCase().slice(0,3) === 'sep' ? 'september' : m[1].toLowerCase());
-    const day = Number(m[2]);
-    const y = m[3] ? Number(m[3]) : new Date().getFullYear();
-    return new Date(y, month, day, 12, 0, 0);
+  // --- NEW: convert ordinal/word to number (1..10 basic) ---
+  wordToNumber(word) {
+    const map = {
+      'one':1,'first':1,
+      'two':2,'second':2,
+      'three':3,'third':3,
+      'four':4,'fourth':4,
+      'five':5,'fifth':5,
+      'six':6,'sixth':6,
+      'seven':7,'seventh':7,
+      'eight':8,'eighth':8,
+      'nine':9,'ninth':9,
+      'ten':10,'tenth':10
+    };
+    return map[word] || null;
   }
 
-  return null;
-}
+  // --- NEW: parse a concrete date from free text (YYYY-MM-DD | M/D | Month D) ---
+  parseExplicitDateFromText(text) {
+    const t = (text || '').trim();
 
-// --- NEW: resolve which day index the user meant ---
-resolveTargetDayIndex(userMessage, conversation, fallbackIndex = null, reduction = null) {
-  const msg = String(userMessage || '').toLowerCase();
+    // YYYY-MM-DD
+    let m = t.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
 
-  // If reducer gave us a clean answer, trust it (and validate bounds)
-  const totalDays = conversation.dayByDayPlanning?.totalDays ||
-                    this.calculateDuration(conversation?.facts?.startDate?.value, conversation?.facts?.endDate?.value) || 0;
-  let idxFromReducer = (reduction && Number.isInteger(reduction.target_day_index)) ? reduction.target_day_index : null;
-  if (idxFromReducer != null && idxFromReducer >= 0 && idxFromReducer < totalDays) return idxFromReducer;
-
-  // Trip dates
-  const start = this.toLocalDate(conversation?.facts?.startDate?.value);
-  if (!start || !totalDays) return (fallbackIndex != null) ? fallbackIndex : (conversation.dayByDayPlanning?.currentDay || 0);
-
-  // 1) "day 1" / "day one" / "first day" / "2nd day"
-  let m = msg.match(/\bday\s*(\d+)\b/);
-  if (!m) m = msg.match(/\b(\d+)(?:st|nd|rd|th)?\s*day\b/);
-  if (!m) {
-    // words/ordinals
-    const w = msg.match(/\bday\s+(one|two|three|four|five|six|seven|eight|nine|ten|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/);
-    if (w) {
-      const n = this.wordToNumber(w[1]);
-      if (n && n >= 1 && n <= totalDays) return n - 1;
+    // M/D or MM/DD (optionally with year)
+    m = t.match(/\b(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?\b/);
+    if (m) {
+      const y = m[3] ? Number(m[3].length === 2 ? ('20' + m[3]) : m[3]) : new Date().getFullYear();
+      return new Date(y, Number(m[1]) - 1, Number(m[2]), 12, 0, 0);
     }
-  } else {
-    const n = Number(m[1]);
-    if (n >= 1 && n <= totalDays) return n - 1;
+
+    // Month name + day
+    m = t.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:,\s*(\d{4}))?\b/i);
+    if (m) {
+      const monthNames = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+      const month = monthNames.indexOf(m[1].toLowerCase().slice(0,3) === 'sep' ? 'september' : m[1].toLowerCase());
+      const day = Number(m[2]);
+      const y = m[3] ? Number(m[3]) : new Date().getFullYear();
+      return new Date(y, month, day, 12, 0, 0);
+    }
+
+    return null;
   }
 
-  // 2) Weekday name (fri, friday, etc.)
-  const weekdays = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
-  for (let i = 0; i < totalDays; i++) {
-    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i, 12, 0, 0);
-    const name = weekdays[d.getDay()];
-    if (msg.includes(name)) return i;
+  // --- NEW: resolve which day index the user meant ---
+  resolveTargetDayIndex(userMessage, conversation, fallbackIndex = null, reduction = null) {
+    const msg = String(userMessage || '').toLowerCase();
+
+    // If reducer gave us a clean answer, trust it (and validate bounds)
+    const totalDays = conversation.dayByDayPlanning?.totalDays ||
+                      this.calculateDuration(conversation?.facts?.startDate?.value, conversation?.facts?.endDate?.value) || 0;
+    let idxFromReducer = (reduction && Number.isInteger(reduction.target_day_index)) ? reduction.target_day_index : null;
+    if (idxFromReducer != null && idxFromReducer >= 0 && idxFromReducer < totalDays) return idxFromReducer;
+
+    // Trip dates
+    const start = this.toLocalDate(conversation?.facts?.startDate?.value);
+    if (!start || !totalDays) return (fallbackIndex != null) ? fallbackIndex : (conversation.dayByDayPlanning?.currentDay || 0);
+
+    // 1) "day 1" / "day one" / "first day" / "2nd day"
+    let m = msg.match(/\bday\s*(\d+)\b/);
+    if (!m) m = msg.match(/\b(\d+)(?:st|nd|rd|th)?\s*day\b/);
+    if (!m) {
+      // words/ordinals
+      const w = msg.match(/\bday\s+(one|two|three|four|five|six|seven|eight|nine|ten|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b/);
+      if (w) {
+        const n = this.wordToNumber(w[1]);
+        if (n && n >= 1 && n <= totalDays) return n - 1;
+      }
+    } else {
+      const n = Number(m[1]);
+      if (n >= 1 && n <= totalDays) return n - 1;
+    }
+
+    // 2) Weekday name (fri, friday, etc.)
+    const weekdays = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+    for (let i = 0; i < totalDays; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i, 12, 0, 0);
+      const name = weekdays[d.getDay()];
+      if (msg.includes(name)) return i;
+    }
+
+    // 3) explicit calendar date
+    const explicit = this.parseExplicitDateFromText(msg);
+    if (explicit) {
+      const msPerDay = 24*60*60*1000;
+      const delta = Math.floor((explicit.setHours(12,0,0,0) - new Date(start.getFullYear(), start.getMonth(), start.getDate(), 12,0,0,0)) / msPerDay);
+      if (delta >= 0 && delta < totalDays) return delta;
+    }
+
+    // default
+    return (fallbackIndex != null) ? fallbackIndex : (conversation.dayByDayPlanning?.currentDay || 0);
   }
 
-  // 3) explicit calendar date
-  const explicit = this.parseExplicitDateFromText(msg);
-  if (explicit) {
-    const msPerDay = 24*60*60*1000;
-    const delta = Math.floor((explicit.setHours(12,0,0,0) - new Date(start.getFullYear(), start.getMonth(), start.getDate(), 12,0,0,0)) / msPerDay);
-    if (delta >= 0 && delta < totalDays) return delta;
+  // --- NEW: get an editable plan object for a specific day index ---
+  getPlanRefForDay(conversation, dayIndex) {
+    const currentIndex = conversation.dayByDayPlanning?.currentDay || 0;
+    if (dayIndex === currentIndex) {
+      return { source: 'current', dayNumber: dayIndex + 1, plan: conversation.dayByDayPlanning.currentDayPlan || { selectedServices: [], dayTheme: '', logisticsNotes: '' } };
+    }
+
+    const saved = (conversation.selectedServices && conversation.selectedServices[dayIndex]) ||
+                  (conversation.dayByDayPlanning?.completedDays && conversation.dayByDayPlanning.completedDays[dayIndex]) || null;
+
+    const selectedServices = (saved?.selectedServices || []).map(s => ({
+      serviceId: String(s.serviceId || s.id),
+      serviceName: s.serviceName || s.name || s.itinerary_name || '',
+      timeSlot: s.timeSlot || s.time_slot || 'evening',
+      reason: s.reason || 'Kept from earlier plan.'
+    }));
+
+    return {
+      source: 'completed',
+      dayNumber: dayIndex + 1,
+      plan: { selectedServices, dayTheme: saved?.dayTheme || '', logisticsNotes: saved?.logisticsNotes || '' }
+    };
   }
-
-  // default
-  return (fallbackIndex != null) ? fallbackIndex : (conversation.dayByDayPlanning?.currentDay || 0);
-}
-
-// --- NEW: get an editable plan object for a specific day index ---
-getPlanRefForDay(conversation, dayIndex) {
-  const currentIndex = conversation.dayByDayPlanning?.currentDay || 0;
-  if (dayIndex === currentIndex) {
-    return { source: 'current', dayNumber: dayIndex + 1, plan: conversation.dayByDayPlanning.currentDayPlan || { selectedServices: [], dayTheme: '', logisticsNotes: '' } };
-  }
-
-  const saved = (conversation.selectedServices && conversation.selectedServices[dayIndex]) ||
-                (conversation.dayByDayPlanning?.completedDays && conversation.dayByDayPlanning.completedDays[dayIndex]) || null;
-
-  const selectedServices = (saved?.selectedServices || []).map(s => ({
-    serviceId: String(s.serviceId || s.id),
-    serviceName: s.serviceName || s.name || s.itinerary_name || '',
-    timeSlot: s.timeSlot || s.time_slot || 'evening',
-    reason: s.reason || 'Kept from earlier plan.'
-  }));
-
-  return {
-    source: 'completed',
-    dayNumber: dayIndex + 1,
-    plan: { selectedServices, dayTheme: saved?.dayTheme || '', logisticsNotes: saved?.logisticsNotes || '' }
-  };
-}
 
   
   parseSeedArgs(rest) {
@@ -362,12 +362,22 @@ getPlanRefForDay(conversation, dayIndex) {
   }
 
   // Main message handler - LLM-first approach
-  async handleMessage(conversationId, userMessage) {
+  async handleMessage(conversationId, userMessage, incomingSnapshot = null) {
     console.log(`\n=== Processing Message ===`);
     console.log(`Conversation: ${conversationId}`);
     console.log(`Message: ${userMessage}`);
     
     const conversation = this.getConversation(conversationId);
+
+    // If client provided a snapshot, import it to hydrate state for stateless runtimes
+    if (incomingSnapshot && typeof incomingSnapshot === 'object') {
+      try {
+        this.importSnapshot(conversation, incomingSnapshot);
+      } catch (e) {
+        console.warn('Failed to import snapshot, proceeding with existing state:', e?.message);
+      }
+    }
+
     console.log(`Current phase: ${conversation.phase}`);
 
   // >>> DEV SHORTCUTS <<<
@@ -378,6 +388,7 @@ getPlanRefForDay(conversation, dayIndex) {
       { role: 'user', content: userMessage, timestamp: new Date().toISOString() },
       { role: 'assistant', content: dev.response, timestamp: new Date().toISOString() }
     );
+    const snapshot = this.exportSnapshot(conversation);
     return {
       response: dev.response,
       phase: conversation.phase,
@@ -385,7 +396,8 @@ getPlanRefForDay(conversation, dayIndex) {
       assumptions: [],
       itinerary: conversation.selectedServices
         ? this.formatItineraryForFrontend(conversation.selectedServices, conversation.facts)
-        : null
+        : null,
+      snapshot
     };
   }
   // <<< END DEV SHORTCUTS >>>
@@ -436,13 +448,16 @@ getPlanRefForDay(conversation, dayIndex) {
     
     console.log(`New phase: ${newPhase}`);
     console.log(`Response: ${finalResponse.substring(0, 100)}...`);
+
+    const snapshot = this.exportSnapshot(conversation);
     
     return {
       response: finalResponse,
       phase: newPhase,
       facts: conversation.facts,
       assumptions: reduction?.assumptions || [],
-      itinerary: conversation.selectedServices ? this.formatItineraryForFrontend(conversation.selectedServices, conversation.facts) : null
+      itinerary: conversation.selectedServices ? this.formatItineraryForFrontend(conversation.selectedServices, conversation.facts) : null,
+      snapshot
     };
   }
   
@@ -941,7 +956,7 @@ async reduceState(conversation, userMessage) {
       };
 
     } catch (error) {
-      console.error('Ã¢ÂÅ’ Error generating itinerary:', error);
+      console.error('Error generating itinerary:', error);
       return {
         success: false,
         error: error.message,
@@ -2272,8 +2287,8 @@ async reduceState(conversation, userMessage) {
   - Look for phrases like "swap", "change to", "instead", "rather than"
   
   Example substitutions:
-  - "club access instead of bottle service" â†’ substitute_service with target_name="bottle service", new_service_name="club access"
-  - "just do the basic entry" â†’ substitute_service if there's currently a premium service
+  - "club access instead of bottle service" â†' substitute_service with target_name="bottle service", new_service_name="club access"
+  - "just do the basic entry" â†' substitute_service if there's currently a premium service
   
   Return structured edits (ops). Prefer minimal-change edits that respect the day's natural flow.
   `;
@@ -2344,7 +2359,7 @@ async reduceState(conversation, userMessage) {
   
     const norm = (s = '') => String(s)
       .toLowerCase()
-      .replace(/[’‘`]/g, "'")
+      .replace(/['`]/g, "'")
       .replace(/&amp;/g, '&')
       .replace(/[^a-z0-9]+/g, ' ')
       .trim();
@@ -2865,7 +2880,7 @@ async searchAvailableServices(destination, groupSize, preferences = {}) {
       // Store in conversation for later use
       conversation.availableServices = enhancedServices;
       
-      console.log(`Ã¢Å“ Found ${enhancedServices.length} total services for conversation`);
+      console.log(`Ã¢Å" Found ${enhancedServices.length} total services for conversation`);
       
       // Group by category for logging
       const servicesByCategory = this.groupServicesByCategory(enhancedServices);

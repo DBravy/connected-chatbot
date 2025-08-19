@@ -128,11 +128,13 @@ class ChatInterface {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     conversationId: this.conversationId,
-                    message: message
+                    message: message,
+                    snapshot: this.currentState
                 })
             });
 
             const result = await response.json();
+            this.currentState = result.snapshot || this.currentState;
             
             // Hide loading indicator before showing response
             this.hideLoadingIndicator();
