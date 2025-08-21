@@ -6,12 +6,19 @@
     "build": "echo 'No build needed'",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["bachelor-party", "chatbot", "ai", "vercel"],
+  "keywords": [
+    "bachelor-party",
+    "chatbot",
+    "ai",
+    "vercel"
+  ],
   "author": "",
   "license": "ISC",
   "description": "AI-powered bachelor party planning chatbot for Vercel",
   "dependencies": {
     "@supabase/supabase-js": "^2.55.0",
-    "openai": "^5.12.2"
+    "glob": "^11.0.3",
+    "openai": "^5.12.2",
+    "pg": "^8.16.3"
   }
 }

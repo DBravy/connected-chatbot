@@ -114,7 +114,7 @@ export const createNewConversation = (userId = null) => ({
   messages: [
     { 
       role: 'assistant', 
-      content: "Where are you planning to have your bachelor party?", 
+      content: "Welcome to Connected. Where are you planning to have your bachelor party?", 
       timestamp: new Date().toISOString() 
     }
   ],
