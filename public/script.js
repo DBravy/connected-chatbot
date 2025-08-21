@@ -78,6 +78,14 @@ class ChatInterface {
         return 'Not specified';
     }
 
+    formatBudgetWithScope(value, scope) {
+        const base = this.formatBudget(value);
+        if (base === 'Not specified') return base;
+        if (scope === 'per_person') return `${base} per person`;
+        if (scope === 'total') return `${base} total`;
+        return base; // unknown scope
+        }
+
     init() {
         this.setupEventListeners();
         this.toggleButton.textContent = this.itinerarySidebar.classList.contains('collapsed') ? '☰' : '×';
@@ -209,8 +217,10 @@ class ChatInterface {
         const groupSize = this.tripFacts.groupSize?.value || 'Not specified';
         const startDate = this.tripFacts.startDate?.value || null;
         const endDate = this.tripFacts.endDate?.value || null;
-        const budget = this.formatBudget(this.tripFacts.budget?.value);
-        
+        const budget = this.formatBudgetWithScope(
+            this.tripFacts.budget?.value,
+            this.tripFacts.budgetType?.value
+            );        
         // Format dates using proper local date parsing
         let dateRange = 'Dates not set';
         if (startDate && endDate) {
@@ -259,8 +269,10 @@ class ChatInterface {
             const groupSize = this.tripFacts.groupSize?.value || 'N/A';
             const startDate = this.tripFacts.startDate?.value || null;
             const endDate = this.tripFacts.endDate?.value || null;
-            const budget = this.formatBudget(this.tripFacts.budget?.value);
-            
+            const budget = this.formatBudgetWithScope(
+                this.tripFacts.budget?.value,
+                this.tripFacts.budgetType?.value
+                );                
             let dateRange = 'Dates not set';
             if (startDate && endDate) {
                 const start = this.formatDateWithConditionalYear(startDate);

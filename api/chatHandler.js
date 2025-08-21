@@ -608,6 +608,7 @@ async reduceState(conversation, userMessage) {
   - Set budget.status to "set" 
   - Set budget.value to "flexible" or "to be determined"
   - Mark this as ADDRESSED and don't ask again
+  - When the user gives a budget, set facts.budget.value and also set facts.budgetType.value to "per_person" or "total". If unclear, just set as "total".
   
   ASSUMPTION TAGS (REQUIRED):
   - Always include at least one of: ["approval", "next", "modification", "preference", "different", "substitution"] in the assumptions array.
@@ -713,7 +714,18 @@ async reduceState(conversation, userMessage) {
                 confidence: { type: "number", minimum: 0, maximum: 1 },
                 provenance: { type: ["string", "null"] }
               }
-            }
+            },
+            "budgetType": {
+            "type": "object",
+            "properties": {
+              "value": { "type": ["string", "null"], "description": "per_person or total" },
+              "status": { "type": "string" },
+              "confidence": { "type": ["number", "null"] },
+              "provenance": { "type": ["string", "null"] },
+              "priority": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
           }
         },
         assumptions: { type: "array", items: { type: "string" } },
@@ -828,6 +840,7 @@ transformConversationFacts(facts) {
     duration: this.calculateDuration(facts.startDate?.value, facts.endDate?.value),
     wildnessLevel: facts.wildnessLevel?.value || 3,
     budget: facts.budget?.value,
+    budgetType: facts.budgetType?.value,
     interestedActivities: facts.interestedActivities?.value || [],
     specialRequests: Array.isArray(facts.interestedActivities?.value) 
       ? facts.interestedActivities.value.join(', ') 
@@ -1858,7 +1871,7 @@ transformConversationFacts(facts) {
         dayLabel = `${weekNames[d.getDay()]} (Day ${targetDayIndex + 1})`;
       }
     
-      return `Done — updated ${dayLabel}. Want to keep planning Day ${Math.max(dayByDayPlanning.currentDay || 0, 0) + 1}, or review anything else?`;
+      return `Gotcha. Want to keep planning Day ${Math.max(dayByDayPlanning.currentDay || 0, 0) + 1}, or review anything else?`;
     }
   }
   

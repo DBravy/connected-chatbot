@@ -104,7 +104,15 @@ export const createNewConversation = (userId = null) => ({
       confidence: 0, 
       provenance: null,
       priority: FACT_PRIORITY.HELPFUL
-    }
+    },
+    budgetType: {
+      // "per_person" | "total"
+      value: null,
+      status: FIELD_STATUS.UNKNOWN,
+      confidence: 0,
+      provenance: null,
+      priority: FACT_PRIORITY.HELPFUL
+      }
   },
   
   // Services from database
