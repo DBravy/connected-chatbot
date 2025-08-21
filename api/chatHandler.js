@@ -1566,12 +1566,31 @@ transformConversationFacts(facts) {
     // 1) Handle approvals/next-day requests
     if (intentType === 'approval_next') {
 
-      if (/\bday\s*\d{1,2}\b/i.test(userMessage)) {
-        // Re-run as show_day
-        return await this.handleItineraryFeedback(conversation, userMessage, { ...reduction, intent_type: 'show_day' });
+      const currentDayIndex = dayByDayPlanning.currentDay || 0;
+      const targetIndex = this.resolveTargetDayIndex(userMessage, conversation, null, reduction);
+      
+      // Approval keywords (keep broad but safe)
+      const hasApprovalWords = /\b(yes|yep|yeah|sure|ok(?:ay)?|cool|perfect|great|works|approved|approve|sounds good|looks good|good to me|let'?s go|go ahead)\b/i.test(userMessage);
+      
+      // Phrases that indicate explicit navigation to a specific day
+      const explicitNavigate = /\b(go to|show(?: me)?|switch(?: to)?|work on|plan|open)\b/i.test(userMessage);
+      
+      // Only treat as navigation if:
+      //  - they *aren’t* approving, and
+      //  - they’re explicitly navigating OR they referenced a *different* day than the current one.
+      const wantsNavigation = !hasApprovalWords && (
+        explicitNavigate ||
+        (targetIndex != null && targetIndex !== currentDayIndex)
+      );
+      
+      if (wantsNavigation) {
+        return await this.handleItineraryFeedback(conversation, userMessage, {
+          ...reduction,
+          intent_type: 'show_day',
+          target_day_index: targetIndex
+        });
       }
 
-      const currentDayIndex = dayByDayPlanning.currentDay || 0;
       const nextDayIndex = currentDayIndex + 1;
   
       // Persist current day
