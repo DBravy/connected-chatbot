@@ -17,6 +17,9 @@
   "description": "AI-powered bachelor party planning chatbot for Vercel",
   "dependencies": {
     "@supabase/supabase-js": "^2.55.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
     "glob": "^11.0.3",
     "openai": "^5.12.2",
     "pg": "^8.16.3"

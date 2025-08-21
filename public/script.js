@@ -81,7 +81,7 @@ class ChatInterface {
     init() {
         this.setupEventListeners();
         this.toggleButton.textContent = this.itinerarySidebar.classList.contains('collapsed') ? '☰' : '×';
-        this.addMessage("Where are you planning to have your bachelor party?", 'bot');
+        this.addMessage("Welcome to Connected. Where are you planning to have your bachelor party?", 'bot');
     }
 
     setupEventListeners() {

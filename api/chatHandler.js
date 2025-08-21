@@ -562,15 +562,34 @@ async reduceState(conversation, userMessage) {
   - ageRange: "What's the age range of the group?"
   - budget: "What's your budget looking like? Total for the group or per person?"
 
-  DAY REFERENCE EXTRACTION (IMPORTANT):
-  - If the user mentions a day like "day 1", "day one", "first day", map that to target_day_index=0.
-  - If they mention a weekday name (e.g., "Friday"), use the trip startDate/endDate to compute which day that weekday corresponds to; set target_day_index accordingly.
-  - If they mention a date like "Sept 5", "9/5", or "2025-09-05", map that to the trip day index (0 for start date, 1 for next day, etc.).
-  - If you cannot determine it reliably, set target_day_index to null.
+  INTENT CLASSIFICATION PRIORITY RULES:
+  1. APPROVAL_NEXT takes priority when:
+    - User expresses approval/satisfaction ("sounds good", "perfect", "great", "yes", "let's go")
+    - AND mentions current day OR no specific different day
+    - AND shows readiness to continue ("ready for", "let's move", "next", "continue")
+    
+  2. SHOW_DAY only when:
+    - User explicitly wants to NAVIGATE to a different day ("go to day 2", "show me Friday", "let's plan day 3")
+    - OR asks to REVIEW a specific day ("what's on day 2", "tell me about Friday")
+    - AND is NOT expressing approval of current plan
 
-  DAY REFERENCE RULES (IMPORTANT):
-  - If the message contains a specific day reference (e.g., "day 1/one/first", "Friday", "Sept 5"), set intent_type="show_day" and compute target_day_index (0-based).
-  - Only use intent_type="approval_next" when the user clearly approves the CURRENT day and does not specify a target day number/weekday/date.
+  EXAMPLES OF APPROVAL_NEXT (even with day mentions):
+  - "Day 1 sounds great, ready for day 2"
+  - "Perfect for day 1, let's continue" 
+  - "Day 1 looks good, what's next?"
+  - "Sounds good" (no day reference)
+  - "Yes, let's move to day 2"
+
+  EXAMPLES OF SHOW_DAY:
+  - "Go to day 2" (navigation without approval)
+  - "Show me what you have for Friday"
+  - "Let's work on day 3 now"
+  - "Can we plan day 2?" (without approving current)
+
+  DAY REFERENCE EXTRACTION:
+  - If intent_type="show_day", extract target_day_index from the specific day mentioned
+  - If intent_type="approval_next", set target_day_index=null (system will auto-advance)
+  - Current day context: Day ${(conversation.dayByDayPlanning?.currentDay || 0) + 1}
   
   DURATION HANDLING:
   - If user provides only a start date, ask about duration: "Is this a one-night party or are you thinking a whole weekend? When do you want it to end?"
@@ -800,21 +819,23 @@ async reduceState(conversation, userMessage) {
     });
   }
 
-  transformConversationFacts(facts) {
-    return {
-      destination: facts.destination?.value,
-      groupSize: facts.groupSize?.value,
-      startDate: facts.startDate?.value,
-      endDate: facts.endDate?.value,
-      duration: this.calculateDuration(facts.startDate?.value, facts.endDate?.value),
-      wildnessLevel: facts.wildnessLevel?.value || 3,
-      budget: facts.budget?.value,
-      interestedActivities: facts.interestedActivities?.value || [],
-      specialRequests: facts.interestedActivities?.value?.join(', ') || '',
-      relationship: facts.relationship?.value,
-      ageRange: facts.ageRange?.value
-    };
-  }
+transformConversationFacts(facts) {
+  return {
+    destination: facts.destination?.value,
+    groupSize: facts.groupSize?.value,
+    startDate: facts.startDate?.value,
+    endDate: facts.endDate?.value,
+    duration: this.calculateDuration(facts.startDate?.value, facts.endDate?.value),
+    wildnessLevel: facts.wildnessLevel?.value || 3,
+    budget: facts.budget?.value,
+    interestedActivities: facts.interestedActivities?.value || [],
+    specialRequests: Array.isArray(facts.interestedActivities?.value) 
+      ? facts.interestedActivities.value.join(', ') 
+      : (facts.interestedActivities?.value || ''),
+    relationship: facts.relationship?.value,
+    ageRange: facts.ageRange?.value
+  };
+}
 
   fallbackItineraryPresentation(conversation) {
     const { facts } = conversation;
