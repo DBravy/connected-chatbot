@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connected - Prompt Management</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f7;
+            color: #1d1d1f;
+        }
+        
+        .header {
+            background: white;
+            border-bottom: 1px solid #e5e5e7;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .header .status {
+            color: #28a745;
+            font-size: 0.9rem;
+        }
+        
+        .main-container {
+            display: flex;
+            height: calc(100vh - 80px);
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: white;
+            border-right: 1px solid #e5e5e7;
+            padding: 1rem;
+            overflow-y: auto;
+        }
+        
+        .content-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .tabs {
+            display: flex;
+            background: white;
+            border-bottom: 1px solid #e5e5e7;
+        }
+        
+        .tab {
+            padding: 1rem 2rem;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 1rem;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab.active {
+            border-bottom-color: #007aff;
+            color: #007aff;
+        }
+        
+        .tab:hover {
+            background: #f8f9fa;
+        }
+        
+        .tab-content {
+            flex: 1;
+            padding: 2rem;
+            overflow: hidden;
+        }
+        
+        .prompt-list {
+            list-style: none;
+        }
+        
+        .prompt-item {
+            padding: 1rem;
+            margin-bottom: 0.5rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .prompt-item:hover {
+            background: #e9ecef;
+        }
+        
+        .prompt-item.active {
+            background: #007aff;
+            color: white;
+        }
+        
+        .prompt-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        
+        .prompt-description {
+            font-size: 0.85rem;
+            color: #666;
+        }
+        
+        .prompt-item.active .prompt-description {
+            color: rgba(255,255,255,0.8);
+        }
+        
+        .editor-container {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .editor-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        .editor-actions {
+            display: flex;
+            gap: 1rem;
+        }
+        
+        .btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary {
+            background: #007aff;
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background: #0056b3;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover:not(:disabled) {
+            background: #545b62;
+        }
+        
+        .btn-warning {
+            background: #fd7e14;
+            color: white;
+        }
+        
+        .btn-warning:hover:not(:disabled) {
+            background: #e8690b;
+        }
+        
+        .monaco-editor-container {
+            flex: 1;
+            border: 1px solid #e5e5e7;
+            border-radius: 8px;
+        }
+        
+        .chat-interface {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 12px;
+            margin: 1rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        }
+        
+        .chat-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #e5e5e7;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px 12px 0 0;
+        }
+        
+        .chat-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+        
+        .chat-subtitle {
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+        
+        .chat-messages {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            background: #fafafa;
+        }
+        
+        .message {
+            margin-bottom: 1rem;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .message.user {
+            align-items: flex-end;
+        }
+        
+        .message.assistant {
+            align-items: flex-start;
+        }
+        
+        .message-bubble {
+            max-width: 80%;
+            padding: 1rem;
+            border-radius: 18px;
+            line-height: 1.4;
+        }
+        
+        .message.user .message-bubble {
+            background: #007aff;
+            color: white;
+        }
+        
+        .message.assistant .message-bubble {
+            background: white;
+            border: 1px solid #e5e5e7;
+        }
+        
+        .chat-input-container {
+            padding: 1rem;
+            border-top: 1px solid #e5e5e7;
+            background: white;
+            border-radius: 0 0 12px 12px;
+        }
+        
+        .chat-input-wrapper {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-end;
+        }
+        
+        .chat-input {
+            flex: 1;
+            padding: 1rem;
+            border: 1px solid #e5e5e7;
+            border-radius: 20px;
+            resize: none;
+            font-family: inherit;
+            font-size: 1rem;
+            max-height: 120px;
+            outline: none;
+        }
+        
+        .chat-input:focus {
+            border-color: #007aff;
+        }
+        
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #007aff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        
+        .send-btn:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+        
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e5e5e7;
+            border-top: 2px solid #007aff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            padding: 1rem 1.5rem;
+            background: #28a745;
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transform: translateX(400px);
+            transition: transform 0.3s ease;
+            z-index: 1000;
+        }
+        
+        .notification.show {
+            transform: translateX(0);
+        }
+        
+        .notification.error {
+            background: #dc3545;
+        }
+        
+        .confirmation-dialog {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        
+        .confirmation-content {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+        
+        .confirmation-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .confirmation-message {
+            color: #666;
+            margin-bottom: 2rem;
+            line-height: 1.4;
+        }
+        
+        .confirmation-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Connected - Prompt Management</h1>
+        <div class="status"></div>
+    </div>
+    
+    <div class="main-container">
+        <div class="sidebar">
+            <h3 style="margin-bottom: 1rem; color: #666;">Prompt Templates</h3>
+            <ul class="prompt-list" id="promptList">
+                <li class="prompt-item active" data-prompt="reducer.user.txt">
+                    <div class="prompt-name">Conversation Reducer</div>
+                    <div class="prompt-description">Core conversation processor and intent classifier</div>
+                </li>
+                <li class="prompt-item" data-prompt="general.user.txt">
+                    <div class="prompt-name">General Questions</div>
+                    <div class="prompt-description">Handles questions about completed itineraries</div>
+                </li>
+                <li class="prompt-item" data-prompt="options.user.txt">
+                    <div class="prompt-name">Options Presenter</div>
+                    <div class="prompt-description">Lists service options and catalogs</div>
+                </li>
+                <li class="prompt-item" data-prompt="selector.system.txt">
+                    <div class="prompt-name">Service Selector</div>
+                    <div class="prompt-description">AI logic for choosing optimal services</div>
+                </li>
+                <li class="prompt-item" data-prompt="response.user.txt">
+                    <div class="prompt-name">Response Generator</div>
+                    <div class="prompt-description">Creates natural language itinerary presentations</div>
+                </li>
+            </ul>
+        </div>
+        
+        <div class="content-area">
+            <div class="tabs">
+                <button class="tab active" data-tab="editor">Direct Editor</button>
+                <button class="tab" data-tab="chat">AI Assistant</button>
+            </div>
+            
+            <div class="tab-content">
+                <!-- Direct Editor Tab -->
+                <div id="editor-tab" class="editor-container">
+                    <div class="editor-header">
+                        <div class="editor-title">reducer.user.txt</div>
+                        <div class="editor-actions">
+                            <button class="btn btn-warning" id="undoBtn" onclick="undoChanges()" disabled>Undo</button>
+                            <button class="btn btn-secondary" onclick="resetPrompt()">Reset</button>
+                            <button class="btn btn-primary" onclick="savePrompt()">Save Changes</button>
+                        </div>
+                    </div>
+                    <div class="monaco-editor-container" id="monaco-container"></div>
+                </div>
+                
+                <!-- AI Assistant Tab -->
+                <div id="chat-tab" class="chat-interface hidden">
+                    <div class="chat-header">
+                        <div class="chat-title">AI Prompt Assistant</div>
+                        <div class="chat-subtitle">Describe the changes you want to make to your chatbot's behavior</div>
+                    </div>
+                    
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message assistant">
+                            <div class="message-bubble">
+                                Hi! I'm your AI assistant for modifying the Connected chatbot. I understand the entire system architecture and can help you:
+                                <br><br>
+                                • Adjust conversation flow and personality
+                                <br>• Modify how facts are gathered
+                                <br>• Change service selection criteria  
+                                <br>• Update response styles and formats
+                                <br>• Fine-tune customer service approaches
+                                <br><br>
+                                Just tell me what behavior you'd like to change, and I'll update the appropriate prompts for you.
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-input-container">
+                        <div class="chat-input-wrapper">
+                            <textarea 
+                                class="chat-input" 
+                                id="chatInput" 
+                                placeholder="Describe what you'd like to change about your chatbot..."
+                                rows="1"
+                            ></textarea>
+                            <button class="send-btn" id="sendBtn" onclick="sendMessage()">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="notification" id="notification"></div>
+    
+    <!-- Confirmation Dialog -->
+    <div class="confirmation-dialog hidden" id="confirmationDialog">
+        <div class="confirmation-content">
+            <div class="confirmation-title" id="confirmationTitle">Confirm Action</div>
+            <div class="confirmation-message" id="confirmationMessage">Are you sure you want to proceed?</div>
+            <div class="confirmation-actions">
+                <button class="btn btn-secondary" onclick="closeConfirmation()">Cancel</button>
+                <button class="btn btn-primary" id="confirmActionBtn" onclick="confirmAction()">Confirm</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let editor;
+        let currentPrompt = 'reducer.user.txt';
+        let prompts = {};
+        let pendingAction = null;
+        
+        // Initialize Monaco Editor
+        require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs' }});
+        require(['vs/editor/editor.main'], function () {
+            editor = monaco.editor.create(document.getElementById('monaco-container'), {
+                value: 'Loading...',
+                language: 'plaintext',
+                theme: 'vs',
+                wordWrap: 'on',
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                fontSize: 14,
+                lineHeight: 22,
+                padding: { top: 16, bottom: 16 }
+            });
+            
+            loadPrompts();
+        });
+        
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                const tabName = this.dataset.tab;
+                switchTab(tabName);
+            });
+        });
+        
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+            
+            document.getElementById('editor-tab').classList.toggle('hidden', tabName !== 'editor');
+            document.getElementById('chat-tab').classList.toggle('hidden', tabName !== 'chat');
+        }
+        
+        // Prompt list handling
+        document.querySelectorAll('.prompt-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const promptName = this.dataset.prompt;
+                selectPrompt(promptName);
+            });
+        });
+        
+        function selectPrompt(promptName) {
+            document.querySelectorAll('.prompt-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            document.querySelector(`[data-prompt="${promptName}"]`).classList.add('active');
+            
+            currentPrompt = promptName;
+            document.querySelector('.editor-title').textContent = promptName;
+            
+            if (prompts[promptName]) {
+                editor.setValue(prompts[promptName]);
+            } else {
+                loadPrompt(promptName);
+            }
+            
+            // Check if undo is available for this prompt
+            checkUndoAvailability();
+        }
+        
+        // API functions
+        async function loadPrompts() {
+            try {
+                const response = await fetch('/api/prompts');
+                const data = await response.json();
+                prompts = data.prompts;
+                
+                if (prompts[currentPrompt]) {
+                    editor.setValue(prompts[currentPrompt]);
+                }
+                
+                checkUndoAvailability();
+            } catch (error) {
+                showNotification('Failed to load prompts', 'error');
+            }
+        }
+        
+        async function loadPrompt(promptName) {
+            try {
+                const response = await fetch(`/api/prompts/${promptName}`);
+                const data = await response.json();
+                prompts[promptName] = data.content;
+                editor.setValue(data.content);
+                checkUndoAvailability();
+            } catch (error) {
+                showNotification('Failed to load prompt', 'error');
+            }
+        }
+        
+        async function savePrompt() {
+            try {
+                const content = editor.getValue();
+                const response = await fetch(`/api/prompts/${currentPrompt}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                
+                if (response.ok) {
+                    prompts[currentPrompt] = content;
+                    showNotification('Prompt saved successfully!');
+                    checkUndoAvailability();
+                } else {
+                    throw new Error('Failed to save');
+                }
+            } catch (error) {
+                showNotification('Failed to save prompt', 'error');
+            }
+        }
+        
+        function resetPrompt() {
+            showConfirmation(
+                'Reset Prompt',
+                'Are you sure you want to reset this prompt to its default version? This cannot be undone.',
+                () => performReset()
+            );
+        }
+        
+        async function performReset() {
+            try {
+                const response = await fetch(`/api/prompts/${currentPrompt}/reset`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    prompts[currentPrompt] = data.content;
+                    editor.setValue(data.content);
+                    showNotification('Prompt reset to default');
+                    checkUndoAvailability();
+                } else {
+                    throw new Error('Failed to reset');
+                }
+            } catch (error) {
+                showNotification('Failed to reset prompt', 'error');
+            }
+        }
+        
+        // Undo functionality
+        async function checkUndoAvailability() {
+            try {
+                const response = await fetch(`/api/prompts/${currentPrompt}/backups`);
+                const data = await response.json();
+                const undoBtn = document.getElementById('undoBtn');
+                
+                if (data.hasBackups) {
+                    undoBtn.disabled = false;
+                    undoBtn.title = `Undo to version from ${data.latestBackup}`;
+                } else {
+                    undoBtn.disabled = true;
+                    undoBtn.title = 'No previous versions available';
+                }
+            } catch (error) {
+                document.getElementById('undoBtn').disabled = true;
+            }
+        }
+        
+        function undoChanges() {
+            showConfirmation(
+                'Undo Changes',
+                'Are you sure you want to undo the last changes? This will restore the previous version of this prompt.',
+                () => performUndo()
+            );
+        }
+        
+        async function performUndo() {
+            try {
+                const response = await fetch(`/api/prompts/${currentPrompt}/undo`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    prompts[currentPrompt] = data.content;
+                    editor.setValue(data.content);
+                    showNotification('Changes undone successfully');
+                    checkUndoAvailability();
+                } else {
+                    throw new Error('Failed to undo');
+                }
+            } catch (error) {
+                showNotification('Failed to undo changes', 'error');
+            }
+        }
+        
+        // Confirmation dialog
+        function showConfirmation(title, message, action) {
+            document.getElementById('confirmationTitle').textContent = title;
+            document.getElementById('confirmationMessage').textContent = message;
+            pendingAction = action;
+            document.getElementById('confirmationDialog').classList.remove('hidden');
+        }
+        
+        function closeConfirmation() {
+            document.getElementById('confirmationDialog').classList.add('hidden');
+            pendingAction = null;
+        }
+        
+        function confirmAction() {
+            if (pendingAction) {
+                pendingAction();
+                closeConfirmation();
+            }
+        }
+        
+        // Chat functionality
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            input.value = '';
+            addMessage('user', message);
+            
+            // Show loading
+            const loadingId = addMessage('assistant', '<div class="loading"><div class="spinner"></div> Analyzing and updating prompts...</div>');
+            
+            try {
+                const response = await fetch('/api/ai-prompt-modifier', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message,
+                        currentPrompts: prompts 
+                    })
+                });
+                
+                const data = await response.json();
+                
+                // Remove loading message
+                document.getElementById(loadingId).remove();
+                
+                // Add AI response
+                addMessage('assistant', data.response);
+                
+                // Update prompts if any were modified
+                if (data.modifiedPrompts) {
+                    Object.assign(prompts, data.modifiedPrompts);
+                    
+                    // Update editor if current prompt was modified
+                    if (data.modifiedPrompts[currentPrompt]) {
+                        editor.setValue(data.modifiedPrompts[currentPrompt]);
+                    }
+                    
+                    showNotification(`Updated ${Object.keys(data.modifiedPrompts).length} prompt(s)`);
+                    checkUndoAvailability();
+                }
+                
+            } catch (error) {
+                document.getElementById(loadingId).remove();
+                addMessage('assistant', 'Sorry, I encountered an error while processing your request. Please try again.');
+                showNotification('Failed to process AI request', 'error');
+            }
+        }
+        
+        function addMessage(role, content) {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageId = 'msg-' + Date.now();
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            messageDiv.id = messageId;
+            messageDiv.innerHTML = `<div class="message-bubble">${content}</div>`;
+            
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            
+            return messageId;
+        }
+        
+        // Chat input handling
+        document.getElementById('chatInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        // Auto-resize chat input
+        document.getElementById('chatInput').addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+        
+        // Close confirmation dialog when clicking outside
+        document.getElementById('confirmationDialog').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeConfirmation();
+            }
+        });
+        
+        // Notification system
+        function showNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type}`;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

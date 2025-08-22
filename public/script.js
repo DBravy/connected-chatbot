@@ -88,26 +88,47 @@ class ChatInterface {
 
     init() {
         this.setupEventListeners();
-        this.toggleButton.textContent = this.itinerarySidebar.classList.contains('collapsed') ? '☰' : '×';
+        if (this.toggleButton && this.itinerarySidebar) {
+            this.toggleButton.textContent = this.itinerarySidebar.classList.contains('collapsed') ? '☰' : '×';
+        }
         this.addMessage("Welcome to Connected. Where are you planning to have your bachelor party?", 'bot');
     }
 
     setupEventListeners() {
         this.sendButton.addEventListener('click', () => this.sendMessage());
-        this.messageInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') this.sendMessage();
+        this.messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.sendMessage();
+            }
         });
+        // Auto-resize textarea
+        const autoResize = () => {
+            this.messageInput.style.height = 'auto';
+            const newHeight = Math.min(this.messageInput.scrollHeight, 240);
+            this.messageInput.style.height = newHeight + 'px';
+            this.messageInput.style.overflowY = this.messageInput.scrollHeight > 240 ? 'auto' : 'hidden';
+        };
+        ['input', 'change'].forEach(evt => {
+            this.messageInput.addEventListener(evt, autoResize);
+        });
+        // Initialize size
+        requestAnimationFrame(autoResize);
         
         // Sidebar toggle
-        this.toggleButton.addEventListener('click', () => this.toggleSidebar());
+        if (this.toggleButton) {
+            this.toggleButton.addEventListener('click', () => this.toggleSidebar());
+        }
     }
 
     toggleSidebar() {
+        if (!this.itinerarySidebar || !this.toggleButton) return;
         this.itinerarySidebar.classList.toggle('collapsed');
         this.toggleButton.textContent = this.itinerarySidebar.classList.contains('collapsed') ? '☰' : '×';
     }
 
     ensureSidebarVisible() {
+        if (!this.itinerarySidebar || !this.toggleButton) return;
         if (this.itinerarySidebar.classList.contains('collapsed')) {
             this.itinerarySidebar.classList.remove('collapsed');
         }
@@ -120,12 +141,15 @@ class ChatInterface {
 
         // Add user message to chat
         this.addMessage(message, 'user');
-        if (!this.hasShownSidebar) {
+        if (!this.hasShownSidebar && this.itinerarySidebar) {
             this.ensureSidebarVisible();
             this.hasShownSidebar = true;
         }
         this.messageInput.value = '';
         this.sendButton.disabled = true;
+        // Reset input height after sending
+        this.messageInput.style.height = 'auto';
+        this.messageInput.style.overflowY = 'hidden';
 
         try {
             // Show loading indicator
@@ -210,7 +234,7 @@ class ChatInterface {
     }
 
     updateTripSummary() {
-        if (!this.tripFacts) return;
+        if (!this.tripFacts || !this.itineraryContent) return;
         
         // Extract facts for display
         const destination = this.tripFacts.destination?.value || 'Not specified';
@@ -259,7 +283,7 @@ class ChatInterface {
     }
 
     updateItinerary() {
-        if (!this.currentItinerary || !Array.isArray(this.currentItinerary)) return;
+        if (!this.itineraryContent || !this.currentItinerary || !Array.isArray(this.currentItinerary)) return;
         
         let itineraryHtml = '';
         

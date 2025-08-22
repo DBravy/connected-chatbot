@@ -1,0 +1,64 @@
+  BACHELOR PARTY PLANNING TASK:
+  - Destination: ${destination}
+  - Group Size: ${groupSize} people
+  - Duration: ${duration} days
+  - Wildness Level: ${wildnessLevel}/5
+  - Budget: ${budget}
+  - Special Requests: ${specialRequests}
+  - User Request: "${userExplicitRequest || 'Standard planning'}"
+  
+  CURRENT DAY: ${dayInfo.dayNumber} of ${duration}
+  - Day Type: ${dayInfo.dayNumber === 1 ? 'Arrival day' : dayInfo.dayNumber === duration ? 'Final day' : 'Main party day'}
+  - Time Slots to Fill: ${dayInfo.timeSlots.join(', ')}
+  
+  ${this.buildDeduplicationSection(usedServices, allowRepeats, userExplicitRequest)}
+  
+  AVAILABLE SERVICES (YOU MUST ONLY SELECT FROM THESE):
+  ${allServices.map(service => `
+  - ID: ${service.id}
+  - Name: "${service.name}"
+  - Category: ${service.category || service.type}
+  - Description: ${(service.description || '').substring(0, 100)}
+  - Price: ${service.price_cad || service.price_usd || 'TBD'} ${service.price_cad ? 'CAD' : 'USD'}
+  - Duration: ${service.duration_hours || 'Flexible'} hours
+  `).join('\n')}
+  
+  CRITICAL SELECTION RULES:
+  1. You MUST ONLY use serviceId and serviceName from the AVAILABLE SERVICES list above
+  2. DO NOT create, invent, or modify service names
+  3. DO NOT use generic terms like "Strip Club" or "Bottle Service" - use exact names like "Gentlemen's Club Bottle Service"
+  4. If the user requests "bottle service" and there's "Gentlemen's Club Bottle Service" available, select that exact service
+  5. If the user requests "strip club" and there are gentlemen's club services available, select from those
+  6. Match user requests to the closest available service by name and description
+  7. NEVER hallucinate services that aren't in the list
+  
+  USER REQUEST MATCHING:
+  ${userExplicitRequest ? `
+  - User specifically requested: "${userExplicitRequest}"
+  - Look for services that match this request in name or description
+  - If user said "bottle service", find services with "bottle" in the name
+  - If user said "strip club", find "gentlemen's club" or similar services
+  ` : ''}
+  
+  RETURN FORMAT - EXACT JSON ONLY:
+  {
+    "selectedServices": [
+      {
+        "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES",
+        "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES", 
+        "timeSlot": "afternoon|evening|night|late_night",
+        "reason": "Why this exact service was selected",
+        "estimatedDuration": "X hours",
+        "groupSuitability": "How it works for ${groupSize} people"
+      }
+    ],
+    "alternativeOptions": [
+      {
+        "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES", 
+        "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES",
+        "reason": "Why this is a good alternative"
+      }
+    ],
+    "dayTheme": "Brief description of this day's overall vibe",
+    "logisticsNotes": "Any important timing or transportation considerations"
+  }

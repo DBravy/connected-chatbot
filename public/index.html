@@ -12,8 +12,7 @@
         <div class="chat-section">
             <div class="chat-container">
                 <div class="chat-header">
-                    <h1>Bachelor Party Planner</h1>
-                    <p>Let's plan your bachelor party!</p>
+                    <img src="images/logo_short.png" alt="Connected logo" class="app-logo">
                 </div>
                 
                 <div id="chat-messages" class="chat-messages">
@@ -21,13 +20,19 @@
                 </div>
                 
                 <div class="chat-input-container">
-                    <input type="text" id="message-input" placeholder="Tell me about your bachelor party..." />
-                    <button id="send-button">Send</button>
+                    <div class="input-wrapper">
+                        <textarea id="message-input" rows="1" placeholder="Tell me about your bachelor party..."></textarea>
+                        <button id="send-button" aria-label="Send message" title="Send">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 19V5"></path>
+                                <path d="M5 12l7-7 7 7"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Itinerary Sidebar -->
         <div class="itinerary-section collapsed" id="itinerary-sidebar">
             <div class="itinerary-header">
                 <h2>Your Trip Itinerary</h2>
@@ -40,6 +45,7 @@
                 </div>
             </div>
         </div>
+
     </div>
 
     <script src="script.js"></script>
