@@ -764,7 +764,7 @@ async reduceState(conversation, userMessage) {
         parsed = {};
       }
 
-  // Provide required defaults (schema isn’t enforced at runtime)
+  // Provide required defaults (schema isn't enforced at runtime)
   const result = {
     facts: {},
     assumptions: [],
@@ -1539,78 +1539,71 @@ transformConversationFacts(facts) {
     const intentType = reduction.intent_type;
     
     // 1) Handle approvals/next-day requests
+    // ===== APPROVAL → SAVE CURRENT DAY, THEN ADVANCE =====
     if (intentType === 'approval_next') {
+      // Ensure structure exists
+      const dayByDayPlanning = conversation.dayByDayPlanning || (conversation.dayByDayPlanning = {});
+      const currentDayIndex = Number.isInteger(dayByDayPlanning.currentDay) ? dayByDayPlanning.currentDay : 0;
 
-      const currentDayIndex = dayByDayPlanning.currentDay || 0;
-      const targetIndex = this.resolveTargetDayIndex(userMessage, conversation, null, reduction);
-      
-      // Approval keywords (keep broad but safe)
-      const hasApprovalWords = /\b(yes|yep|yeah|sure|ok(?:ay)?|cool|perfect|great|works|approved|approve|sounds good|looks good|good to me|let'?s go|go ahead)\b/i.test(userMessage);
-      
-      // Phrases that indicate explicit navigation to a specific day
-      const explicitNavigate = /\b(go to|show(?: me)?|switch(?: to)?|work on|plan|open)\b/i.test(userMessage);
-      
-      // Only treat as navigation if:
-      //  - they *aren’t* approving, and
-      //  - they’re explicitly navigating OR they referenced a *different* day than the current one.
-      const wantsNavigation = !hasApprovalWords && (
-        explicitNavigate ||
-        (targetIndex != null && targetIndex !== currentDayIndex)
-      );
-      
-      if (wantsNavigation) {
-        return await this.handleItineraryFeedback(conversation, userMessage, {
-          ...reduction,
-          intent_type: 'show_day',
-          target_day_index: targetIndex
-        });
-      }
+      // Decide where to go AFTER saving today:
+      // If reducer gave us a specific target (e.g., "day 2"), use it; else go to next day.
+      const nextDayIndex = Number.isInteger(reduction?.target_day_index)
+        ? reduction.target_day_index
+        : currentDayIndex + 1;
 
-      const nextDayIndex = currentDayIndex + 1;
-  
-      // Persist current day
-      const totalDays = dayByDayPlanning.totalDays || this.calculateDuration(
-        conversation.facts.startDate?.value, conversation.facts.endDate?.value
-      );
-      
-      if (dayByDayPlanning.currentDayPlan) {
+      const totalDays =
+        dayByDayPlanning.totalDays ||
+        this.calculateDuration(conversation.facts.startDate?.value, conversation.facts.endDate?.value);
+
+      // Persist CURRENT day's plan into CURRENT index
+      const pending = dayByDayPlanning.currentDayPlan;
+      if (pending) {
         if (!Array.isArray(dayByDayPlanning.completedDays)) dayByDayPlanning.completedDays = [];
+        if (!Array.isArray(conversation.selectedServices)) conversation.selectedServices = [];
+
         const available = conversation.availableServices || [];
-        const enrichedSelected = (dayByDayPlanning.currentDayPlan.selectedServices || []).map((item) => {
+        const enrichedSelected = (pending.selectedServices || []).map((item) => {
           const match = available.find((s) => String(s.id) === String(item.serviceId));
           return {
             ...item,
             price_cad: match?.price_cad ?? null,
             price_usd: match?.price_usd ?? null,
+            serviceName: item.serviceName || match?.itinerary_name || match?.name || 'Selected service'
           };
         });
-        
-        // Track used services
+
+        // Track used services for future days
         this.trackUsedServices(conversation, enrichedSelected);
-        
-        dayByDayPlanning.completedDays[currentDayIndex] = {
+
+        const savedDay = {
           dayNumber: currentDayIndex + 1,
           selectedServices: enrichedSelected,
-          dayTheme: dayByDayPlanning.currentDayPlan.dayTheme || '',
-          logisticsNotes: dayByDayPlanning.currentDayPlan.logisticsNotes || ''
+          dayTheme: pending.dayTheme || '',
+          logisticsNotes: pending.logisticsNotes || ''
         };
-        if (!Array.isArray(conversation.selectedServices)) conversation.selectedServices = [];
-        conversation.selectedServices[currentDayIndex] = dayByDayPlanning.completedDays[currentDayIndex];
+
+        // ✅ Write to the CURRENT day, not the target
+        dayByDayPlanning.completedDays[currentDayIndex] = savedDay;
+        conversation.selectedServices[currentDayIndex] = savedDay;
+
+        // Clear pending to avoid overlay weirdness
+        dayByDayPlanning.currentDayPlan = null;
       }
-  
+
+      // If there are no more days, mark complete and exit
       if (nextDayIndex >= totalDays) {
-        // Mark planning complete - will transition to STANDBY phase in handlePlanningMode
         dayByDayPlanning.isComplete = true;
         return this.generateAllDaysScheduledMessage(conversation);
       }
-  
-      // Plan next day
+
+      // Advance to the chosen day and build its plan
       dayByDayPlanning.currentDay = nextDayIndex;
+
       try {
         const userPreferences = this.transformConversationFacts(conversation.facts);
         const allServices = conversation.availableServices || [];
         const usedServicesContext = this.getUsedServicesContext(conversation);
-        
+
         const dayInfo = {
           dayNumber: nextDayIndex + 1,
           totalDays,
@@ -1618,62 +1611,43 @@ transformConversationFacts(facts) {
           isFirstDay: nextDayIndex === 0,
           isLastDay: nextDayIndex + 1 === totalDays
         };
-        
+
         const dayPlan = await this.aiSelector.selectOptimalServices(
-          allServices, 
-          userPreferences, 
+          allServices,
+          userPreferences,
           dayInfo,
-          {
-            usedServices: usedServicesContext,
-            allowRepeats: false,
-            userExplicitRequest: null
-          }
+          { usedServices: usedServicesContext, allowRepeats: false, userExplicitRequest: null }
         );
-        
+
         dayByDayPlanning.currentDayPlan = dayPlan;
         return await this.aiResponseGenerator.generateItineraryResponse(dayPlan, dayInfo, userPreferences);
-      } catch {
+      } catch (e) {
+        console.error('[approval_next][select/generate error]', e?.stack || e);
         return `Awesome! Let's plan day ${nextDayIndex + 1}. I'm putting together some epic options for you guys!`;
       }
     }
 
+    // ===== NAVIGATE WITHOUT SAVING (SHOW A SPECIFIC DAY) =====
     if (intentType === 'show_day') {
+      // Ensure structure exists
+      const dayByDayPlanning = conversation.dayByDayPlanning || (conversation.dayByDayPlanning = {});
       const userPreferences = this.transformConversationFacts(conversation.facts);
       const allServices = conversation.availableServices || [];
       const usedServicesContext = this.getUsedServicesContext(conversation);
-    
-      const totalDays = conversation.dayByDayPlanning.totalDays || this.calculateDuration(
-        conversation.facts.startDate?.value, conversation.facts.endDate?.value
-      );
-    
-      // Resolve target day from reduction or parse basic patterns
-      const resolveIndex = () => {
-        const txt = String(userMessage || '').toLowerCase();
-        if (Number.isInteger(reduction?.target_day_index)) return reduction.target_day_index;
-    
-        // "day X"
-        let m = txt.match(/\bday\s*(\d{1,2})\b/);
-        if (m) { const n = Number(m[1]) - 1; if (n >= 0 && n < totalDays) return n; }
-    
-        // weekdays → compute from trip start
-        const start = this.toLocalDate(conversation.facts.startDate?.value);
-        if (start) {
-          const wd = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
-          for (let i=0;i<totalDays;i++){
-            const d = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
-            if (txt.includes(wd[d.getDay()])) return i;
-          }
-        }
-    
-        // fallback: current day
-        return (conversation.dayByDayPlanning.currentDay || 0);
-      };
-    
-      const targetIndex = resolveIndex();
-      const currentIndex = conversation.dayByDayPlanning.currentDay || 0;
-    
-      // If they asked for the current day, just (re)present it
-      if (targetIndex === currentIndex && conversation.dayByDayPlanning.currentDayPlan) {
+
+      const totalDays =
+        dayByDayPlanning.totalDays ||
+        this.calculateDuration(conversation.facts.startDate?.value, conversation.facts.endDate?.value);
+
+      // Trust reducer for the day index; if absent, fall back to current
+      const targetIndex = Number.isInteger(reduction?.target_day_index)
+        ? reduction.target_day_index
+        : (Number.isInteger(dayByDayPlanning.currentDay) ? dayByDayPlanning.currentDay : 0);
+
+      const currentIndex = Number.isInteger(dayByDayPlanning.currentDay) ? dayByDayPlanning.currentDay : 0;
+
+      // If asking for the active day and we already have a plan, just (re)present it
+      if (targetIndex === currentIndex && dayByDayPlanning.currentDayPlan) {
         const dayInfo = {
           dayNumber: currentIndex + 1,
           totalDays,
@@ -1682,23 +1656,22 @@ transformConversationFacts(facts) {
           isLastDay: currentIndex + 1 === totalDays
         };
         return await this.aiResponseGenerator.generateItineraryResponse(
-          conversation.dayByDayPlanning.currentDayPlan,
+          dayByDayPlanning.currentDayPlan,
           dayInfo,
           userPreferences
         );
       }
-    
-      // Navigate to a different planning day WITHOUT approving anything
-      // Optional: stash the current plan into drafts so you don't lose it
-      conversation.dayByDayPlanning.drafts = conversation.dayByDayPlanning.drafts || {};
-      if (conversation.dayByDayPlanning.currentDayPlan) {
-        conversation.dayByDayPlanning.drafts[currentIndex] = this.deepClone(conversation.dayByDayPlanning.currentDayPlan);
+
+      // Navigate WITHOUT approving: stash current draft
+      dayByDayPlanning.drafts = dayByDayPlanning.drafts || {};
+      if (dayByDayPlanning.currentDayPlan) {
+        dayByDayPlanning.drafts[currentIndex] = this.deepClone(dayByDayPlanning.currentDayPlan);
       }
-    
-      conversation.dayByDayPlanning.currentDay = targetIndex;
-    
-      // If we already have a draft for that day, load it; else build a fresh plan
-      let nextPlan = conversation.dayByDayPlanning.drafts[targetIndex];
+
+      dayByDayPlanning.currentDay = targetIndex;
+
+      // Load a draft if present; otherwise build a fresh plan
+      let nextPlan = dayByDayPlanning.drafts[targetIndex];
       if (!nextPlan) {
         const dayInfo = {
           dayNumber: targetIndex + 1,
@@ -1709,18 +1682,19 @@ transformConversationFacts(facts) {
         };
         try {
           nextPlan = await this.aiSelector.selectOptimalServices(
-            allServices, 
-            userPreferences, 
+            allServices,
+            userPreferences,
             dayInfo,
             { usedServices: usedServicesContext, allowRepeats: false, userExplicitRequest: null }
           );
-        } catch {
+        } catch (e) {
+          console.error('[show_day][select error]', e?.stack || e);
           nextPlan = { selectedServices: [] };
         }
       }
-    
-      conversation.dayByDayPlanning.currentDayPlan = nextPlan;
-    
+
+      dayByDayPlanning.currentDayPlan = nextPlan;
+
       const dayInfo = {
         dayNumber: targetIndex + 1,
         totalDays,
@@ -1730,6 +1704,8 @@ transformConversationFacts(facts) {
       };
       return await this.aiResponseGenerator.generateItineraryResponse(nextPlan, dayInfo, userPreferences);
     }
+
+    
   
     // 2) Handle substitutions using the reducer's intelligence
     if (['substitution','addition','removal','edit_itinerary'].includes(intentType)) {
@@ -1792,89 +1768,113 @@ transformConversationFacts(facts) {
       if (planRef.source === 'current') {
         dayByDayPlanning.currentDayPlan = rewritten;
       } else {
-        const available = conversation.availableServices || [];
-        const enrichedSelected = (rewritten.selectedServices || []).map(item => {
-          const match = available.find(s => String(s.id) === String(item.serviceId));
-          return {
-            serviceId: item.serviceId,
-            serviceName: item.serviceName,
-            timeSlot: item.timeSlot,
-            reason: item.reason,
-            estimatedDuration: item.estimatedDuration || null,
-            groupSuitability: item.groupSuitability || null,
-            price_cad: match?.price_cad ?? null,
-            price_usd: match?.price_usd ?? null
+        // If we modified a completed day but we're still on that day index,
+        // we need to put it back into currentDayPlan for re-approval
+        if (targetDayIndex === (dayByDayPlanning.currentDay || 0)) {
+          dayByDayPlanning.currentDayPlan = rewritten;
+        } else {
+          // Save to completed days for other days
+          const available = conversation.availableServices || [];
+          const enrichedSelected = (rewritten.selectedServices || []).map(item => {
+            const match = available.find(s => String(s.id) === String(item.serviceId));
+            return {
+              serviceId: item.serviceId,
+              serviceName: item.serviceName,
+              timeSlot: item.timeSlot,
+              reason: item.reason,
+              estimatedDuration: item.estimatedDuration || null,
+              groupSuitability: item.groupSuitability || null,
+              price_cad: match?.price_cad ?? null,
+              price_usd: match?.price_usd ?? null
+            };
+          });
+    
+          if (!Array.isArray(conversation.selectedServices)) conversation.selectedServices = [];
+          if (!Array.isArray(dayByDayPlanning.completedDays)) dayByDayPlanning.completedDays = [];
+    
+          const savedDay = {
+            dayNumber: targetDayIndex + 1,
+            selectedServices: enrichedSelected,
+            dayTheme: rewritten.dayTheme || '',
+            logisticsNotes: rewritten.logisticsNotes || ''
           };
-        });
     
-        if (!Array.isArray(conversation.selectedServices)) conversation.selectedServices = [];
-        if (!Array.isArray(dayByDayPlanning.completedDays)) dayByDayPlanning.completedDays = [];
+          conversation.selectedServices[targetDayIndex] = savedDay;
+          dayByDayPlanning.completedDays[targetDayIndex] = savedDay;
     
-        const savedDay = {
-          dayNumber: targetDayIndex + 1,
-          selectedServices: enrichedSelected,
-          dayTheme: rewritten.dayTheme || '',
-          logisticsNotes: rewritten.logisticsNotes || ''
-        };
-    
-        conversation.selectedServices[targetDayIndex] = savedDay;
-        dayByDayPlanning.completedDays[targetDayIndex] = savedDay;
-    
-        // Keep de-duplication state in sync across all days
-        this.rebuildUsedServices(conversation);
+          // Keep de-duplication state in sync across all days
+          this.rebuildUsedServices(conversation);
+        }
       }
-    
-      // Friendly confirmation that calls out the right day
-      const weekNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-      let dayLabel = `Day ${targetDayIndex + 1}`;
-      const start = this.toLocalDate(conversation.facts.startDate?.value);
-      if (start) {
-        const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + targetDayIndex, 12, 0, 0);
-        dayLabel = `${weekNames[d.getDay()]} (Day ${targetDayIndex + 1})`;
-      }
-    
-      return `Gotcha. Want to keep planning Day ${Math.max(dayByDayPlanning.currentDay || 0, 0) + 1}, or review anything else?`;
+          
+      // Friendly confirmation with next-step prompt
+      const isLastDay = (targetDayIndex + 1) === totalDays;
+      return this.generateEditConfirmationForPlanning(editDirectives, userMessage, targetDayIndex + 1, isLastDay);
     }
   }
 
   buildSidebarItinerary(conversation) {
-    // Reuse existing formatter as a base
+    // Base = confirmed/saved days
     const base = this.formatItineraryForFrontend(
       conversation.selectedServices,
       conversation.facts
     ) || [];
   
-    // Ensure we know how many days to render
-    const duration =
-      base.length ||
-      this.calculateDuration(
-        conversation?.facts?.startDate?.value,
-        conversation?.facts?.endDate?.value
-      ) || 1;
+    const currentIdx = conversation.dayByDayPlanning?.currentDay ?? 0;
+    const completedLen = conversation.dayByDayPlanning?.completedDays?.length || 0;
   
-    // Normalize to [ { dayNumber, selectedServices, dayTheme, logisticsNotes }, ... ]
+    // NEW: Merge in completedDays as a fallback if a day is missing or empty in base
+    const completed = Array.isArray(conversation.dayByDayPlanning?.completedDays)
+      ? conversation.dayByDayPlanning.completedDays
+      : [];
+    for (let i = 0; i < completed.length; i++) {
+      const comp = completed[i];
+      if (!comp) continue;
+      const hasBaseDay = !!base[i];
+      const baseServicesLen = hasBaseDay && Array.isArray(base[i].selectedServices) ? base[i].selectedServices.length : 0;
+      const compServicesLen = Array.isArray(comp.selectedServices) ? comp.selectedServices.length : 0;
+      if (!hasBaseDay || baseServicesLen === 0) {
+        base[i] = {
+          dayNumber: i + 1,
+          selectedServices: (comp.selectedServices || []).map(s => ({ ...s, confirmed: true })),
+          dayTheme: comp.dayTheme || '',
+          logisticsNotes: comp.logisticsNotes || ''
+        };
+      }
+    }
+  
+    // SAFER duration calculation so we never "lose" a day in the UI
+    const calcDuration = this.calculateDuration(
+      conversation?.facts?.startDate?.value,
+      conversation?.facts?.endDate?.value
+    ) || 1;
+  
+    const duration = Math.max(
+      calcDuration,
+      base.length,
+      completedLen,
+      currentIdx + 1  // ensure we have a slot for the active day
+    );
+  
+    // Build days from base (confirmed), then overlay pending on current day
     const days = Array.from({ length: duration }, (_, i) => {
       const d = base[i] || { dayNumber: i + 1, selectedServices: [], dayTheme: '', logisticsNotes: '' };
       return {
         dayNumber: i + 1,
-        selectedServices: (d.selectedServices || []).map(s => ({ ...s, confirmed: true })), // mark saved as confirmed
+        selectedServices: (d.selectedServices || []).map(s => ({ ...s, confirmed: true })),
         dayTheme: d.dayTheme || '',
         logisticsNotes: d.logisticsNotes || ''
       };
     });
   
-    // Overlay current pending plan (if any) on top of the active day index
-    const currentIdx = conversation.dayByDayPlanning?.currentDay ?? 0;
+    // Overlay current pending plan (pending shows first, confirmed fallback remains)
     const pending = conversation.dayByDayPlanning?.currentDayPlan;
-  
     if (pending && Array.isArray(pending.selectedServices) && days[currentIdx]) {
       const pendingServices = pending.selectedServices.map(s => ({
         ...s,
         confirmed: false,
         pending: true
       }));
-  
-      // Keep any previously confirmed items for this day (edge cases), and show pending first
       const confirmedForDay = days[currentIdx].selectedServices.filter(s => s.confirmed);
       days[currentIdx] = {
         dayNumber: currentIdx + 1,
@@ -1934,10 +1934,10 @@ transformConversationFacts(facts) {
     
     // Add appropriate follow-up based on whether this is the last day
     const followUps = isLastDay ? [
-      " Your itinerary is updated.",
-      " Want any other tweaks?",
-      " Does this work?",
-      " Sound good?"
+      " Want to finalize the itinerary?",
+      " Ready to lock it in?",
+      " We can finalize now—good to go?",
+      " Any last tweaks, or should I finalize?"
     ] : [
       " Ready for Day " + (dayNumber + 1) + "?",
       " Let's plan Day " + (dayNumber + 1) + "?",
@@ -2704,7 +2704,7 @@ transformConversationFacts(facts) {
             summary += `${service.timeSlot}: ${service.serviceName}\n`;
           });
         } else {
-          summary += `Ã¢â‚¬Â¢ Epic ${destination} bachelor party activities\n`;
+          summary += `Epic ${destination} bachelor party activities\n`;
         }
         
         if (index < aiGeneratedItinerary.length - 1) summary += '\n';
