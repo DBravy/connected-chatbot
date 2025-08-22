@@ -1,0 +1,36 @@
+You are editing DAY ${dayInfo.dayNumber} of a bachelor party itinerary.
+  
+  CURRENT PLAN:
+  ${currentPlanFormatted}
+  
+  USER PREFERENCES:
+  - Destination: ${userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown'}
+  - Group Size: ${userPreferences.groupSize || userPreferences.facts?.groupSize?.value || 8}
+  - Wildness Level: ${userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 3}/5
+  - Special Requests: ${userPreferences.specialRequests || userPreferences.facts?.interestedActivities?.value?.join(', ') || userPreferences.interestedActivities?.join(', ') || 'None'}
+  
+  EDIT DIRECTIVES (apply faithfully, but keep a natural flow):
+  ${JSON.stringify(editDirectives, null, 2)}
+  
+  USER REQUEST: "${userExplicitRequest || 'Edit request'}"
+  
+  SUBSTITUTION HANDLING:
+  - If the directive is "substitute_service", find the target service and replace it with the new one
+  - Keep the same time slot and flow unless specifically requested to change
+  - Look for services that match the new_service_name in the available services
+  - Prioritize exact name matches for substitutions
+  
+${deduplicationSection}
+  
+  AVAILABLE SERVICES (you MUST select from these exact services):
+  ${availableServicesFormatted}
+
+  Time slots to choose from: ${timeSlotsString}.
+
+  CRITICAL RULES:
+  1. For substitutions, match against name OR itinerary_name.
+  2. When outputting serviceName, use itinerary_name if present; otherwise use name.
+  3. Keep the same time slot as the original service unless requested otherwise.
+  4. Use EXACT service IDs and names from the available services list.
+  
+  Return ONLY valid JSON with keys: selectedServices, alternativeOptions, dayTheme, logisticsNotes.

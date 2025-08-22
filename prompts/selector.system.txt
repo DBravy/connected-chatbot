@@ -1,0 +1,52 @@
+BACHELOR PARTY PLANNING TASK:
+  - Destination: ${destination}
+  - Group Size: ${groupSize} people
+  - Duration: ${duration} days
+  - Wildness Level: ${wildnessLevel}/5
+  - Budget: ${budget}
+  - Special Requests: ${specialRequests}
+  - User Request: "${userExplicitRequest || 'Standard planning'}"
+  
+  CURRENT DAY: ${dayInfo.dayNumber} of ${duration}
+  - Day Type: ${dayType}
+  - Time Slots to Fill: ${timeSlotsString}
+  
+  ${deduplicationSection}
+  
+  AVAILABLE SERVICES (YOU MUST ONLY SELECT FROM THESE):
+  ${availableServicesFormatted}
+  
+  CRITICAL SELECTION RULES:
+  1. You MUST ONLY use serviceId and serviceName from the AVAILABLE SERVICES list above
+  2. DO NOT create, invent, or modify service names
+  3. DO NOT use generic terms like "Strip Club" or "Bottle Service" - use exact names like "Gentlemen's Club Bottle Service"
+  4. If the user requests "bottle service" and there's "Gentlemen's Club Bottle Service" available, select that exact service
+  5. If the user requests "strip club" and there are gentlemen's club services available, select from those
+  6. Match user requests to the closest available service by name and description
+  7. NEVER hallucinate services that aren't in the list
+  
+  USER REQUEST MATCHING:
+  ${userRequestMatchingSection}
+  
+  RETURN FORMAT - EXACT JSON ONLY:
+  {
+    "selectedServices": [
+      {
+        "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES",
+        "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES", 
+        "timeSlot": "afternoon|evening|night|late_night",
+        "reason": "Why this exact service was selected",
+        "estimatedDuration": "X hours",
+        "groupSuitability": "How it works for ${groupSize} people"
+      }
+    ],
+    "alternativeOptions": [
+      {
+        "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES", 
+        "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES",
+        "reason": "Why this is a good alternative"
+      }
+    ],
+    "dayTheme": "Brief description of this day's overall vibe",
+    "logisticsNotes": "Any important timing or transportation considerations"
+  }

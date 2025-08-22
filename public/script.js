@@ -305,7 +305,8 @@ class ChatInterface {
         // Add itinerary days
         this.currentItinerary.forEach((day, index) => {
             const dayDate = this.calculateDayDate(index);
-            const bookingCount = day.selectedServices ? day.selectedServices.length : 0;
+            const services = this.dedupeServices(day.selectedServices || []);
+            const bookingCount = services.length;
             const bookingText = bookingCount === 0 ? 'No bookings' : 
                                bookingCount === 1 ? '1 booking' : `${bookingCount} bookings`;
             
@@ -319,15 +320,18 @@ class ChatInterface {
                     <div class="day-content">
             `;
             
-            if (day.selectedServices && day.selectedServices.length > 0) {
+            if (services.length > 0) {
                 itineraryHtml += '<div class="day-services">';
                 
-                day.selectedServices.forEach(service => {
+                services.forEach(service => {
                     const timeSlot = this.formatTimeSlot(service.timeSlot);
                     const serviceName = this.truncateText(service.serviceName, 40);
                     const serviceDescription = this.truncateText(service.reason || 'Great experience for your group', 100);
                     
-                    // Prefer real pricing from backend; fallback to mock if absent
+                    const isPending = this.isServicePending(service);
+                    const statusClass = isPending ? 'pending' : 'confirmed';
+                    const statusBadge = isPending ? '<span class="service-badge"></span>' : '';
+                    
                     const groupSize = this.tripFacts?.groupSize?.value || 4;
                     const hasCad = typeof service.price_cad === 'number' && !isNaN(service.price_cad);
                     const hasUsd = typeof service.price_usd === 'number' && !isNaN(service.price_usd);
@@ -336,38 +340,42 @@ class ChatInterface {
                     const totalPrice = price * groupSize;
                     
                     itineraryHtml += `
-                        <div class="service-card confirmed">
-                            <div class="service-card-content">
-                                <div class="service-header">
-                                    <div class="service-time">${timeSlot}</div>
-                                    <div class="service-actions">
-                                        <button class="service-action-btn" title="Edit service">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                                <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                            </svg>
-                                        </button>
-                                        <button class="service-action-btn" title="Remove service">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                <path d="M3 6h18"/>
-                                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-                                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                                <div class="service-main">
-                                    <div class="service-image" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div>
-                                    <div class="service-title">${serviceName}</div>
-                                </div>
-                                <div class="service-description">${serviceDescription}</div>
-                                <div class="service-pricing">
-                                    <span class="service-price-per-person">$${price}/${currency} per person</span>
-                                    <span class="service-price-separator">|</span>
-                                    <span>$${totalPrice.toLocaleString()}</span>
-                                </div>
+                      <div class="service-card ${statusClass}" data-service-id="${service.serviceId || ''}" data-pending="${isPending}">
+                        <div class="service-card-content">
+                          <div class="service-header">
+                            <div class="service-time">${timeSlot || ''}</div>
+                            ${statusBadge}
+                            <div class="service-actions">
+                              <button class="service-action-btn" title="Edit service">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                  <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                              </button>
+                              <button class="service-action-btn" title="Remove service">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M3 6h18"/>
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
+                                </svg>
+                              </button>
                             </div>
+                          </div>
+                    
+                          <div class="service-main">
+                            <div class="service-image" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div>
+                            <div class="service-title">${serviceName}</div>
+                          </div>
+                    
+                          <div class="service-description">${serviceDescription}</div>
+                    
+                          <div class="service-pricing">
+                            <span class="service-price-per-person">$${price}/${currency} per person</span>
+                            <span class="service-price-separator">|</span>
+                            <span>$${Number(totalPrice || 0).toLocaleString()}</span>
+                          </div>
                         </div>
+                      </div>
                     `;
                 });
                 
@@ -425,6 +433,43 @@ class ChatInterface {
         if (!text) return '';
         if (text.length <= length) return text;
         return text.substring(0, length - 3) + '...';
+    }
+
+    getServiceKey(service) {
+        // Prefer a stable unique id; fallback to name + timeSlot combo
+        const idPart = service.serviceId && String(service.serviceId).trim();
+        const namePart = (service.serviceName || '').trim();
+        const timePart = (service.timeSlot || '').trim();
+        return idPart || `${namePart}||${timePart}`;
+    }
+
+    isServicePending(service) {
+        return service?.pending === true || service?.confirmed === false;
+    }
+
+    dedupeServices(services) {
+        if (!Array.isArray(services)) return [];
+        const keyToService = new Map();
+        for (const service of services) {
+            const key = this.getServiceKey(service);
+            const existing = keyToService.get(key);
+            if (!existing) {
+                keyToService.set(key, service);
+                continue;
+            }
+            const existingPending = this.isServicePending(existing);
+            const currentPending = this.isServicePending(service);
+            // Prefer confirmed over pending
+            if (existingPending && !currentPending) {
+                keyToService.set(key, service);
+            } else if (!existingPending && currentPending) {
+                // keep existing confirmed, ignore new pending
+            } else {
+                // If both are same status, keep the latest to reflect newest data
+                keyToService.set(key, service);
+            }
+        }
+        return Array.from(keyToService.values());
     }
 
     generateMockPrice(serviceName) {

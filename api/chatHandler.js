@@ -5,6 +5,133 @@ import { AIServiceSelector } from './aiServiceSelector.js';
 import { AIResponseGenerator } from './aiResponseGenerator.js';
 import { globalConversations } from './globalState.js';
 
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+// Define the function-calling tool the model should use for the reducer
+const reducerFunction = {
+  name: "reduce_state",
+  description: "Update conversation state based on user message with intelligent intent classification",
+  parameters: {
+    type: "object",
+    properties: {
+      facts: {
+        type: "object",
+        properties: {
+          destination: {
+            type: "object", 
+            properties: {
+              value: { type: ["string", "null"] },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          },
+          groupSize: {
+            type: "object",
+            properties: {
+              value: { type: ["number", "null"] },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          },
+          startDate: {
+            type: "object",
+            properties: {
+              value: { type: ["string", "null"] },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          },
+          endDate: {
+            type: "object",
+            properties: {
+              value: { type: ["string", "null"] },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          },
+          wildnessLevel: {
+            type: "object",
+            properties: {
+              value: { type: ["number", "null"] },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          },
+          relationship: {
+            type: "object",
+            properties: {
+              value: { type: ["string", "null"] },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          },
+          interestedActivities: {
+            type: "object",
+            properties: {
+              value: { type: "array", items: { type: "string" } },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          },
+          ageRange: {
+            type: "object",
+            properties: {
+              value: { type: ["string", "null"] },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          },
+          budget: {
+            type: "object",
+            properties: {
+              value: { type: ["string", "null"] },
+              status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
+              confidence: { type: "number", minimum: 0, maximum: 1 },
+              provenance: { type: ["string", "null"] }
+            }
+          }
+        }
+      },
+      assumptions: { type: "array", items: { type: "string" } },
+      blocking_questions: { type: "array", items: { type: "string" } },
+      safe_transition: { type: "boolean" },
+      reply: { type: "string" },
+      intent_type: {
+        type: "string", 
+        enum: ["edit_itinerary", "general_question", "approval_next", "show_day", "substitution", "addition", "removal"],
+        description: "Type of user intent"
+      },
+      target_day_index: {
+        type: ["integer","null"],
+        description: "0-based day index the user referred to explicitly (e.g., 'day one', 'Friday', 'Sept 5'); null if not specified/unresolvable."
+      },
+
+      substitution_details: {
+        type: "object",
+        properties: {
+          what_changed: { type: "string" },
+          changed_from: { type: "string" },
+          changed_to: { type: "string" }
+        }
+      }
+    },
+    required: ["facts", "assumptions", "blocking_questions", "safe_transition", "reply", "intent_type"]
+  }
+};
+
+
 export class ChatHandler {
 
   
@@ -21,6 +148,87 @@ export class ChatHandler {
     this.aiResponseGenerator = new AIResponseGenerator();
   }
 
+  templateCache = new Map();
+
+  async loadTemplate(filename, { cache = process.env.NODE_ENV === "production" } = {}) {
+    if (cache && this.templateCache.has(filename)) {
+      return this.templateCache.get(filename);
+    }
+    const filePath = path.resolve(__dirname, "../prompts", filename); // api -> ../prompts
+    const text = await fs.readFile(filePath, "utf8");
+    if (cache) this.templateCache.set(filename, text);
+    return text;
+  }
+
+  // Render ${...} expressions using the provided context.
+  // NOTE: This evaluates expressions from your own file—do not feed user input here.
+  renderTemplate(template, context) {
+
+    
+    // Log each context value's type and sample
+    Object.entries(context).forEach(([key, value]) => {
+      const type = typeof value;
+      let sample = '';
+      if (type === 'object' && value !== null) {
+        sample = JSON.stringify(value, null, 2).substring(0, 200) + '...';
+      } else if (type === 'string') {
+        sample = value.substring(0, 100) + (value.length > 100 ? '...' : '');
+      } else {
+        sample = String(value);
+      }
+    });
+  
+    // Find problematic template expressions
+    const expressions = template.match(/\$\{[^}]+\}/g) || [];
+
+  
+    const keys = Object.keys(context);
+    const vals = Object.values(context);
+  
+    // Build a real template literal to preserve ${…} semantics
+    const body = "return `" +
+      template
+        .replace(/\\/g, "\\\\")
+        .replace(/`/g, "\\`") +
+      "`;";
+  
+    try {
+      const fn = new Function(...keys, body);
+      
+      const out = fn(...vals);
+      return out == null ? "" : String(out);
+    } catch (e) {
+      console.error("\n!!! TEMPLATE RENDER ERROR !!!");
+      console.error("Error type:", e.constructor.name);
+      console.error("Error message:", e.message);
+      console.error("Error stack:", e.stack);
+      
+      // Try to identify which expression caused the error
+      console.log("\nAttempting to identify problematic expression...");
+      expressions.forEach((expr, i) => {
+        try {
+          // Try to evaluate each expression in isolation
+          const testBody = `return \`\${${expr.slice(2, -1)}}\`;`;
+          const testFn = new Function(...keys, testBody);
+          testFn(...vals);
+          console.log(`Expression ${i} OK: ${expr}`);
+        } catch (testErr) {
+          console.error(`Expression ${i} FAILED: ${expr}`);
+          console.error(`  Error: ${testErr.message}`);
+        }
+      });
+  
+      console.warn("\nFalling back to simple replacement...");
+  
+      // --- Fallback: only replace ${var} and ${a.b.c}; ignore complex expressions ---
+      const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+      return template.replace(/\$\{([a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*)\}/g, (_, path) => {
+        const v = get(context, path);
+        console.log(`Replacing ${path} with:`, v);
+        return v == null ? "" : String(v);
+      });
+    }
+  }
   setFact(conversation, key, value, provenance = 'dev') {
     if (!conversation.facts[key]) return;
     conversation.facts[key] = {
@@ -394,9 +602,8 @@ export class ChatHandler {
       phase: conversation.phase,
       facts: conversation.facts,
       assumptions: [],
-      itinerary: conversation.selectedServices
-        ? this.formatItineraryForFrontend(conversation.selectedServices, conversation.facts)
-        : null,
+      itinerary: this.buildSidebarItinerary(conversation),
+
       snapshot
     };
   }
@@ -456,7 +663,7 @@ export class ChatHandler {
       phase: newPhase,
       facts: conversation.facts,
       assumptions: reduction?.assumptions || [],
-      itinerary: conversation.selectedServices ? this.formatItineraryForFrontend(conversation.selectedServices, conversation.facts) : null,
+      itinerary: this.buildSidebarItinerary(conversation),
       snapshot
     };
   }
@@ -465,6 +672,7 @@ export class ChatHandler {
   // Core LLM reducer - single point of intelligence
 // MODIFY the reduceState method in chatHandler.js around line 400
 async reduceState(conversation, userMessage) {
+
   const currentFacts = this.serializeFacts(conversation.facts);
   const recentMessages = conversation.messages.slice(-6).map(m => `${m.role}: ${m.content}`).join('\n');
   const currentYear = new Date().getFullYear();
@@ -472,6 +680,7 @@ async reduceState(conversation, userMessage) {
   // Check if we're in planning mode with an active day
   const isInPlanningWithActiveDay = conversation.phase === 'planning' && 
     conversation.dayByDayPlanning?.currentDayPlan?.selectedServices?.length > 0;
+  
   
   const planningContext = isInPlanningWithActiveDay ? `
   
@@ -482,278 +691,54 @@ async reduceState(conversation, userMessage) {
     `  * ${s.serviceName} (${s.timeSlot})`
   ).join('\n')}
   ` : '';
-  
-  const reducerPrompt = `You are a bachelor party planning assistant. Your job is to update facts and generate a conversational response.
 
-  CURRENT YEAR: ${currentYear}
-  CURRENT PHASE: ${conversation.phase}
-  CURRENT FACTS: ${currentFacts}
-  RECENT CONVERSATION:
-  ${recentMessages}
-  ${planningContext}
+  const intentTypeOptions = (conversation?.phase === 'planning')
+  ? '"approval_next", "substitution", "addition", "removal", "show_day", "general_question"'
+  : '"edit_itinerary", "general_question", "approval_next"';
   
-  USER MESSAGE: "${userMessage}"
+  const reducerTemplate = await this.loadTemplate("reducer.user.txt");
   
-  ${conversation.phase === 'planning' ? `
-  PLANNING PHASE INTENT CLASSIFICATION:
-  When in planning phase, classify user intent precisely:
-  
-  - "approval_next": User wants to approve current day and move to next day
-    Examples: "sounds good", "yes", "let's move on", "ready for day 2", "next day", "continue"
+  // Log the actual template content around problematic areas
+  const problemArea = reducerTemplate.indexOf("conversation.dayByDayPlanning");
 
-  - "show_day": User wants to view/work on a SPECIFIC day (mentions day number/weekday/date)
-    Examples: "go to day 2", "show me Friday", "let's plan Sept 5", "can we do day one now?"
+
+
+
+  const planningPhaseInstructions = conversation.phase === 'planning' ? 
+    `PLANNING PHASE INTENT CLASSIFICATION:
+    When in planning phase, classify user intent precisely:
     
-  - "substitution": User wants to swap/replace something in current day  
-    Examples: "gentlemen's club instead of nightclub", "swap the restaurant", "change dinner to steakhouse"
-    
-  - "addition": User wants to add something new to current day
-    Examples: "add golf", "can we include", "also book"
-    
-  - "removal": User wants to remove something from current day  
-    Examples: "skip the dinner", "remove the club", "don't need transportation"
-    
-  - "general_question": User asking for info/details
-    Examples: "what time does it start", "how much does it cost", "where is this located"
-    
-  SUBSTITUTION RESPONSE GUIDELINES:
-  If intent is "substitution":
-  - Generate a natural, brief confirmation (like "Perfect! Swapped that for a gentlemen's club.")
-  - Include what was changed and what it was changed to
-  - End with appropriate transition question (next day if last day, otherwise ask for approval)
-  - Keep response under 25 words
-  - Be conversational, not robotic
-  ` : ''}
+    - "approval_next": User wants to approve current day and move to next day
+      Examples: "sounds good", "yes", "let's move on", "ready for day 2", "next day", "continue"
   
-  DATE HANDLING RULES:
-  - Always convert concrete dates to YYYY-MM-DD.
-  - RANGES like "September 5–7": set startDate="YYYY-09-05", endDate="YYYY-09-07".
-  - SINGLE SPECIFIC DAY like "September 6": set startDate="YYYY-09-06", leave endDate null; do NOT assume duration.
-  - VAGUE MONTH ONLY (e.g., "sometime in September", "September", "early September"):
-      * DO NOT set startDate or endDate yet.
-      * Ask a narrowing question first, e.g.:
-        - "Are you thinking early, mid, or late September?"
-        - If they say "weekend," offer 2–3 concrete Fri–Sun options with exact dates for that year.
-        - If they say "weekday," ask for a 2–3 day window with exact dates.
-      * Only once the user picks a specific day or range, set startDate/endDate.
-  - PARTIAL like "5th to 7th": anchor to the already-known month/year; otherwise ask which month.
-  - DURATION QUESTION ("one night or a whole weekend?") is asked ONLY after:
-      * the user gave a single specific day (startDate set, endDate null), OR
-      * they're hesitating between day vs weekend after you present specific date options.
-   
-  FACT PRIORITIES:
-  - ESSENTIAL (must have): destination, groupSize, startDate, endDate
-  - HELPFUL (should ask about): wildnessLevel, relationship, interestedActivities, ageRange, budget
-  - OPTIONAL (don't persist): none currently
-  
-  CONVERSATION RULES:
-  1. ASK ONLY ONE QUESTION at a time (max 2 if closely related)
-  2. Get ESSENTIAL facts first, then ask about HELPFUL facts before transitioning to planning
-  3. If user provides only a start date, ask about duration/end date next
-  4. For HELPFUL facts: if user says "whatever you think is best" or "I don't care", set status to "set" with a reasonable default
-  5. For OPTIONAL facts: if user doesn't answer or shows disinterest, don't keep asking
-  6. Be conversational and natural, not robotic or overwhelming
-  7. CRITICAL: Only set safe_transition to TRUE when you have ALL essential facts AND have asked about ALL helpful facts
-  
-  HELPFUL FACTS TO ASK ABOUT:
-  - wildnessLevel: "How crazy do you want this to get? Scale of 1-5 where 1 is classy dinner and 5 is absolutely debaucherous?"
-  - relationship: "How do you all know each other? College buddies, work friends, family?"
-  - interestedActivities: "Anything specific you guys want to do? Strip clubs, golf, boat parties, extreme sports?"
-  - ageRange: "What's the age range of the group?"
-  - budget: "What's your budget looking like? Total for the group or per person?"
+    - "show_day": User wants to view/work on a SPECIFIC day (mentions day number/weekday/date)
+      Examples: "go to day 2", "show me Friday", "let's plan Sept 5", "can we do day one now?"
+      
+    - "substitution": User wants to swap/replace something in current day  
+      Examples: "gentlemen's club instead of nightclub", "swap the restaurant", "change dinner to steakhouse"
+      
+    - "addition": User wants to add something new to current day
+      Examples: "add golf", "can we include", "also book"
+      
+    - "removal": User wants to remove something from current day  
+      Examples: "skip the dinner", "remove the club", "don't need transportation"
+      
+    - "general_question": User asking for info/details
+      Examples: "what time does it start", "how much does it cost", "where is this located"
+    ` : '';
 
-  INTENT CLASSIFICATION PRIORITY RULES:
-  1. APPROVAL_NEXT takes priority when:
-    - User expresses approval/satisfaction ("sounds good", "perfect", "great", "yes", "let's go")
-    - AND mentions current day OR no specific different day
-    - AND shows readiness to continue ("ready for", "let's move", "next", "continue")
-    
-  2. SHOW_DAY only when:
-    - User explicitly wants to NAVIGATE to a different day ("go to day 2", "show me Friday", "let's plan day 3")
-    - OR asks to REVIEW a specific day ("what's on day 2", "tell me about Friday")
-    - AND is NOT expressing approval of current plan
+  const reducerPrompt = this.renderTemplate(reducerTemplate, {
+    currentYear,
+    conversation,
+    currentFacts,
+    recentMessages,
+    planningContext,
+    userMessage,
+    intentTypeOptions,
+    planningPhaseInstructions
+  });
 
-  EXAMPLES OF APPROVAL_NEXT (even with day mentions):
-  - "Day 1 sounds great, ready for day 2"
-  - "Perfect for day 1, let's continue" 
-  - "Day 1 looks good, what's next?"
-  - "Sounds good" (no day reference)
-  - "Yes, let's move to day 2"
 
-  EXAMPLES OF SHOW_DAY:
-  - "Go to day 2" (navigation without approval)
-  - "Show me what you have for Friday"
-  - "Let's work on day 3 now"
-  - "Can we plan day 2?" (without approving current)
-
-  DAY REFERENCE EXTRACTION:
-  - If intent_type="show_day", extract target_day_index from the specific day mentioned
-  - If intent_type="approval_next", set target_day_index=null (system will auto-advance)
-  - Current day context: Day ${(conversation.dayByDayPlanning?.currentDay || 0) + 1}
-  
-  DURATION HANDLING:
-  - If user provides only a start date, ask about duration: "Is this a one-night party or are you thinking a whole weekend? When do you want it to end?"
-  - If user says "one night" or "just Saturday", set endDate same as startDate
-  - If user says "weekend" with Saturday start, set endDate to Sunday
-  
-  PLANNING TRANSITION TRIGGERS (only after asking about helpful facts):
-  - User says "that's why I'm here" when asked about activities
-  - User expresses "we just want to party/get drunk/have fun" 
-  - User asks "what do you suggest" or similar
-  - User seems done with questions and ready for recommendations
-  - You have ALL essential facts SET AND have asked about ALL helpful facts
-  
-  BUDGET HANDLING:
-  - If user says "I don't think we know yet", "we haven't decided", "not sure", etc:
-  - Set budget.status to "set" 
-  - Set budget.value to "flexible" or "to be determined"
-  - Mark this as ADDRESSED and don't ask again
-  - When the user gives a budget, set facts.budget.value and also set facts.budgetType.value to "per_person" or "total". If unclear, just set as "total".
-  
-  ASSUMPTION TAGS (REQUIRED):
-  - Always include at least one of: ["approval", "next", "modification", "preference", "different", "substitution"] in the assumptions array.
-
-  Return a JSON object with:
-  1. facts: Object with any fact updates (dates in YYYY-MM-DD format)
-  2. assumptions: Array of things you believe but aren't certain about  
-  3. blocking_questions: Array of what's still needed (focus on ESSENTIAL and HELPFUL facts)
-  4. safe_transition: boolean - can we move to planning phase? (only true if all essentials SET and all helpfuls addressed)
-  5. reply: Conversational response with ONE question max
-  6. intent_type: string - ${conversation.phase === 'planning' ? '"approval_next", "substitution", "addition", "removal", or "general_question"' : '"edit_itinerary", "general_question", or "approval_next"'}
-  7. substitution_details: object (only if intent_type is "substitution") with:
-     - what_changed: string describing what was swapped
-     - changed_from: string describing the original item  
-     - changed_to: string describing the new item`;
-
-  const reducerFunction = {
-    name: "reduce_state",
-    description: "Update conversation state based on user message with intelligent intent classification",
-    parameters: {
-      type: "object",
-      properties: {
-        facts: {
-          type: "object",
-          properties: {
-            destination: {
-              type: "object", 
-              properties: {
-                value: { type: ["string", "null"] },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            groupSize: {
-              type: "object",
-              properties: {
-                value: { type: ["number", "null"] },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            startDate: {
-              type: "object",
-              properties: {
-                value: { type: ["string", "null"] },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            endDate: {
-              type: "object",
-              properties: {
-                value: { type: ["string", "null"] },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            wildnessLevel: {
-              type: "object",
-              properties: {
-                value: { type: ["number", "null"] },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            relationship: {
-              type: "object",
-              properties: {
-                value: { type: ["string", "null"] },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            interestedActivities: {
-              type: "object",
-              properties: {
-                value: { type: "array", items: { type: "string" } },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            ageRange: {
-              type: "object",
-              properties: {
-                value: { type: ["string", "null"] },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            budget: {
-              type: "object",
-              properties: {
-                value: { type: ["string", "null"] },
-                status: { type: "string", enum: ["unknown", "suggested", "assumed", "set", "corrected"] },
-                confidence: { type: "number", minimum: 0, maximum: 1 },
-                provenance: { type: ["string", "null"] }
-              }
-            },
-            "budgetType": {
-            "type": "object",
-            "properties": {
-              "value": { "type": ["string", "null"], "description": "per_person or total" },
-              "status": { "type": "string" },
-              "confidence": { "type": ["number", "null"] },
-              "provenance": { "type": ["string", "null"] },
-              "priority": { "type": "string" }
-            },
-            "additionalProperties": false
-          }
-          }
-        },
-        assumptions: { type: "array", items: { type: "string" } },
-        blocking_questions: { type: "array", items: { type: "string" } },
-        safe_transition: { type: "boolean" },
-        reply: { type: "string" },
-        intent_type: {
-          type: "string", 
-          enum: ["edit_itinerary", "general_question", "approval_next", "show_day", "substitution", "addition", "removal"],
-          description: "Type of user intent"
-        },
-        target_day_index: {
-          type: ["integer","null"],
-          description: "0-based day index the user referred to explicitly (e.g., 'day one', 'Friday', 'Sept 5'); null if not specified/unresolvable."
-        },
-  
-        substitution_details: {
-          type: "object",
-          properties: {
-            what_changed: { type: "string" },
-            changed_from: { type: "string" },
-            changed_to: { type: "string" }
-          }
-        }
-      },
-      required: ["facts", "assumptions", "blocking_questions", "safe_transition", "reply", "intent_type"]
-    }
-  };
 
   try {
     const response = await this.openai.chat.completions.create({
@@ -769,20 +754,44 @@ async reduceState(conversation, userMessage) {
     });
 
     const functionCall = response.choices[0].message.function_call;
+
     if (functionCall) {
-      const result = JSON.parse(functionCall.arguments);
-      
-      // Process dates to ensure consistent format
-      if (result.facts.startDate && result.facts.startDate.value) {
-        result.facts.startDate.value = this.parseUserDate(result.facts.startDate.value);
+      // Parse safely
+      let parsed;
+      try {
+        parsed = JSON.parse(functionCall.arguments || "{}");
+      } catch {
+        parsed = {};
       }
-      
-      if (result.facts.endDate && result.facts.endDate.value) {
-        result.facts.endDate.value = this.parseUserDate(result.facts.endDate.value);
-      }
-      
-      return result;
+
+  // Provide required defaults (schema isn’t enforced at runtime)
+  const result = {
+    facts: {},
+    assumptions: [],
+    blocking_questions: [],
+    safe_transition: false,
+    reply: "",
+    intent_type: "general_question",
+    ...parsed,
+  };
+
+  // Ensure facts is an object
+  if (!result.facts || typeof result.facts !== "object" || Array.isArray(result.facts)) {
+    result.facts = {};
+  }
+
+  // Normalize date fields if present
+  const normalizeDateField = (key) => {
+    const f = result.facts[key];
+    if (f && typeof f === "object" && f.value) {
+      f.value = this.parseUserDate(String(f.value));
     }
+  };
+  normalizeDateField("startDate");
+  normalizeDateField("endDate");
+
+  return result;
+}
   } catch (error) {
     console.error('Error in LLM reducer:', error);
   }
@@ -920,7 +929,7 @@ transformConversationFacts(facts) {
 
   async generateItinerary(conversationData) {
     try {
-      console.log('Ã°Å¸Å½Â¯ Generating AI-powered itinerary...');
+      console.log('Generating AI-powered itinerary...');
       
       const userPreferences = this.transformConversationData(conversationData)
       // Get ALL available services (not just 5 types)
@@ -1333,54 +1342,7 @@ transformConversationFacts(facts) {
       return this.fallbackItineraryPresentation(conversation);
     }
   }
-  // New method to generate intelligent transition using LLM
-  async generatePlanningTransition(conversation, firstDayName, totalDays) {
-    const recentMessages = conversation.messages.slice(-4).map(m => `${m.role}: ${m.content}`).join('\n');
-    const facts = this.serializeFacts(conversation.facts);
-    
-    const transitionPrompt = `You are transitioning from gathering information to planning a bachelor party itinerary. 
-  
-  CONTEXT:
-  - Recent conversation: ${recentMessages}
-  - All gathered facts: ${facts}
-  - Trip duration: ${totalDays} days
-  - First day: ${firstDayName}
-  
-  Create a smooth, natural transition that:
-  1. Briefly acknowledges the last piece of information gathered (if relevant)
-  2. Shows enthusiasm about planning
-  3. Smoothly introduces the day-by-day planning approach
-  4. Feels conversational, not robotic
-  
-  Examples of good transitions:
-  - "Perfect! 22-year-olds are gonna love what I have in mind. Let's map out your ${totalDays} days in Austin..."
-  - "Got it! With that age group, we can definitely go all out. Here's how I'm thinking we structure your ${totalDays} days..."
-  
-  Keep it to 1-2 sentences max. Be enthusiastic and personalized to their situation.
-  
-  Return just the transition text, nothing else.`;
-  
-    try {
-      const response = await this.openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { role: "system", content: "You are an expert bachelor party planner creating smooth conversational transitions." },
-          { role: "user", content: transitionPrompt }
-        ],
-        temperature: 0.7,
-        max_tokens: 100
-      });
-  
-      const transition = response.choices[0].message.content.trim();
-      return transition + "\n\n";
-      
-    } catch (error) {
-      console.error('Error generating transition:', error);
-      // Fallback to a basic but slightly better template
-      return `Perfect! Let's plan out your ${totalDays} ${totalDays === 1 ? 'day' : 'days'} step by step.\n\n`;
-    }
-  }
-  
+
   // New method to plan a single day
   planSingleDay(dayIndex, totalDays, startDate, availableServices, wildnessLevel, groupSize) {
     // Create date object and reset to start of day
@@ -1874,6 +1836,56 @@ transformConversationFacts(facts) {
       return `Gotcha. Want to keep planning Day ${Math.max(dayByDayPlanning.currentDay || 0, 0) + 1}, or review anything else?`;
     }
   }
+
+  buildSidebarItinerary(conversation) {
+    // Reuse existing formatter as a base
+    const base = this.formatItineraryForFrontend(
+      conversation.selectedServices,
+      conversation.facts
+    ) || [];
+  
+    // Ensure we know how many days to render
+    const duration =
+      base.length ||
+      this.calculateDuration(
+        conversation?.facts?.startDate?.value,
+        conversation?.facts?.endDate?.value
+      ) || 1;
+  
+    // Normalize to [ { dayNumber, selectedServices, dayTheme, logisticsNotes }, ... ]
+    const days = Array.from({ length: duration }, (_, i) => {
+      const d = base[i] || { dayNumber: i + 1, selectedServices: [], dayTheme: '', logisticsNotes: '' };
+      return {
+        dayNumber: i + 1,
+        selectedServices: (d.selectedServices || []).map(s => ({ ...s, confirmed: true })), // mark saved as confirmed
+        dayTheme: d.dayTheme || '',
+        logisticsNotes: d.logisticsNotes || ''
+      };
+    });
+  
+    // Overlay current pending plan (if any) on top of the active day index
+    const currentIdx = conversation.dayByDayPlanning?.currentDay ?? 0;
+    const pending = conversation.dayByDayPlanning?.currentDayPlan;
+  
+    if (pending && Array.isArray(pending.selectedServices) && days[currentIdx]) {
+      const pendingServices = pending.selectedServices.map(s => ({
+        ...s,
+        confirmed: false,
+        pending: true
+      }));
+  
+      // Keep any previously confirmed items for this day (edge cases), and show pending first
+      const confirmedForDay = days[currentIdx].selectedServices.filter(s => s.confirmed);
+      days[currentIdx] = {
+        dayNumber: currentIdx + 1,
+        selectedServices: [...pendingServices, ...confirmedForDay],
+        dayTheme: pending.dayTheme || days[currentIdx].dayTheme,
+        logisticsNotes: pending.logisticsNotes || days[currentIdx].logisticsNotes
+      };
+    }
+  
+    return days;
+  }
   
   // NEW: Helper method to detect if edits are primarily substitutions
   isPrimarylySubstitution(editDirectives) {
@@ -2162,8 +2174,19 @@ transformConversationFacts(facts) {
   // NEW: Handle general questions with full context
   async handleGeneralQuestion(conversation, userMessage, reduction) {
     const fullContext = this.buildFullContextForQuestion(conversation);
-    
-    const questionPrompt = `You are Connected, a professional bachelor party planner. Answer the user's question using all the context provided.
+  
+    // Try to load & render the external template first
+    let questionPrompt;
+    try {
+      const generalTemplate = await this.loadTemplate("general.user.txt"); // cached via templateCache
+      questionPrompt = this.renderTemplate(generalTemplate, {
+        userMessage,
+        fullContext,
+      });
+    } catch (e) {
+      console.warn("general.user.txt load/render failed; using inline fallback:", e?.message);
+      // Fallback: previous inline prompt
+      questionPrompt = `You are Connected, a professional bachelor party planner. Answer the user's question using all the context provided.
   
   USER QUESTION: "${userMessage}"
   
@@ -2179,24 +2202,26 @@ transformConversationFacts(facts) {
   - If they ask about something not in the context, acknowledge that and suggest alternatives
   - Keep responses focused and not overly long (under 200 words)
   - No emojis or excessive enthusiasm`;
+    }
   
     try {
       const response = await this.openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
-          { 
-            role: "system", 
-            content: "You are Connected, a bachelor party planning assistant. Answer questions directly using the provided context. Be helpful and conversational."
+          {
+            role: "system",
+            content:
+              "You are Connected, a bachelor party planning assistant. Answer questions directly using the provided context. Be helpful and conversational.",
           },
-          { role: "user", content: questionPrompt }
+          { role: "user", content: questionPrompt },
         ],
         temperature: 0.6,
-        max_tokens: 400
+        max_tokens: 400,
       });
   
       return response.choices[0].message.content;
     } catch (error) {
-      console.error('Error handling general question:', error);
+      console.error("Error handling general question:", error);
       return "I'm having trouble accessing that information right now. Can you be more specific about what you'd like to know?";
     }
   }
@@ -3444,7 +3469,7 @@ async searchAvailableServices(destination, groupSize, preferences = {}) {
   // Present options succinctly using the model for copy
   async presentOptions(conversation, intent, options) {
     const facts = this.transformConversationFacts(conversation.facts);
-    const payload = options.map(o => ({
+    const payload = (options || []).map(o => ({
       id: o.id,
       name: o.name,
       category: o.category || o.type,
@@ -3453,16 +3478,27 @@ async searchAvailableServices(destination, groupSize, preferences = {}) {
       duration_hours: o.duration_hours || null,
       blurb: (o.itinerary_description || o.description || '').slice(0, 160)
     }));
+  
+    // Build the prompt from external template; fallback to inline prompt on error
+    let prompt;
     try {
-      const prompt = `You are Connected, a bachelor party planner. The user asked for options for category: ${intent.category}.
-Destination: ${facts.destination}, group size: ${facts.groupSize}, wildness: ${facts.wildnessLevel}/5.
-Options JSON: ${JSON.stringify(payload)}
-
-Write a tight answer:
-- Start with a one-line setup (e.g., "Top strip club picks in Austin for 8:")
-- List 3-5 numbered options: name — 3-8 word vibe; include rough price if present
-- Close with a single question to choose or refine vibe (high-energy vs. upscale), or ask which day/slot to place it
-- Max ~120 words, no emojis.`;
+      const optionsTemplate = await this.loadTemplate("options.user.txt"); // cached via templateCache
+      prompt = this.renderTemplate(optionsTemplate, { intent, facts, payload });
+    } catch (e) {
+      console.warn("options.user.txt load/render failed; using inline fallback:", e?.message);
+      prompt =
+  `You are Connected, a bachelor party planner. The user asked for options for category: ${intent?.category}.
+  Destination: ${facts.destination}, group size: ${facts.groupSize}, wildness: ${facts.wildnessLevel}/5.
+  Options JSON: ${JSON.stringify(payload)}
+  
+  Write a tight answer:
+  - Start with a one-line setup (e.g., "Top strip club picks in Austin for 8:")
+  - List 3-5 numbered options: name — 3-8 word vibe; include rough price if present
+  - Close with a single question to choose or refine vibe (high-energy vs. upscale), or ask which day/slot to place it
+  - Max ~120 words, no emojis.`;
+    }
+  
+    try {
       const res = await this.openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -3477,7 +3513,7 @@ Write a tight answer:
       // Simple fallback formatting
       const lines = payload.slice(0, 5).map((o, i) => {
         const price = o.price_cad ? ` — ~$${o.price_cad} CAD` : (o.price_usd ? ` — ~$${o.price_usd} USD` : '');
-        return `${i+1}) ${o.name}${price}`;
+        return `${i + 1}) ${o.name}${price}`;
       }).join('\n');
       return `Here are a few solid options:\n${lines}\n\nWant me to slot one in for late night on Day 1, or do you want a different vibe?`;
     }

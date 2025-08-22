@@ -1,10 +1,96 @@
 import OpenAI from 'openai';
 
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 export class AIServiceSelector {
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
+  }
+
+  templateCache = new Map();
+
+  async loadTemplate(filename, { cache = process.env.NODE_ENV === "production" } = {}) {
+    if (cache && this.templateCache.has(filename)) {
+      return this.templateCache.get(filename);
+    }
+    const filePath = path.resolve(__dirname, "../prompts", filename);
+    const text = await fs.readFile(filePath, "utf8");
+    if (cache) this.templateCache.set(filename, text);
+    return text;
+  }
+
+  // Render ${...} with the provided context, binding "this" to the class instance
+  renderTemplate(template, context) {
+    
+    // Log each context value's type and sample
+    Object.entries(context).forEach(([key, value]) => {
+      const type = typeof value;
+      let sample = '';
+      if (type === 'object' && value !== null) {
+        sample = JSON.stringify(value, null, 2).substring(0, 200) + '...';
+      } else if (type === 'string') {
+        sample = value.substring(0, 100) + (value.length > 100 ? '...' : '');
+      } else {
+        sample = String(value);
+      }
+    });
+  
+    // Find problematic template expressions
+    const expressions = template.match(/\$\{[^}]+\}/g) || [];
+  
+    const keys = Object.keys(context);
+    const vals = Object.values(context);
+  
+    // Build a real template literal to preserve ${…} semantics
+    const body = "return `" +
+      template
+        .replace(/\\/g, "\\\\")
+        .replace(/`/g, "\\`") +
+      "`;";
+  
+    try {
+      const fn = new Function(...keys, body);
+      
+      const out = fn(...vals);
+      return out == null ? "" : String(out);
+    } catch (e) {
+      console.error("\n!!! TEMPLATE RENDER ERROR !!!");
+      console.error("Error type:", e.constructor.name);
+      console.error("Error message:", e.message);
+      console.error("Error stack:", e.stack);
+      
+      // Try to identify which expression caused the error
+      console.log("\nAttempting to identify problematic expression...");
+      expressions.forEach((expr, i) => {
+        try {
+          // Try to evaluate each expression in isolation
+          const testBody = `return \`\${${expr.slice(2, -1)}}\`;`;
+          const testFn = new Function(...keys, testBody);
+          testFn(...vals);
+          console.log(`Expression ${i} OK: ${expr}`);
+        } catch (testErr) {
+          console.error(`Expression ${i} FAILED: ${expr}`);
+          console.error(`  Error: ${testErr.message}`);
+        }
+      });
+  
+      console.warn("\nFalling back to simple replacement...");
+  
+      // --- Fallback: only replace ${var} and ${a.b.c}; ignore complex expressions ---
+      const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+      return template.replace(/\$\{([a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*)\}/g, (_, path) => {
+        const v = get(context, path);
+        console.log(`Replacing ${path} with:`, v);
+        return v == null ? "" : String(v);
+      });
+    }
   }
 
   // UPDATED: Now accepts options parameter for deduplication context
@@ -15,7 +101,7 @@ export class AIServiceSelector {
       userExplicitRequest = null
     } = options;
     
-    const prompt = this.buildSelectionPrompt(allServices, userPreferences, dayInfo, {
+    const prompt = await this.buildSelectionPrompt(allServices, userPreferences, dayInfo, {
       usedServices,
       allowRepeats,
       userExplicitRequest
@@ -152,12 +238,25 @@ export class AIServiceSelector {
       userExplicitRequest = null
     } = options;
     
+    // Build the deduplication section BEFORE creating the prompt
+    const deduplicationSection = this.buildDeduplicationSection(usedServices, allowRepeats, userExplicitRequest);
+    
+    // Format available services here to avoid complex template expressions
+    const availableServicesFormatted = allServices.slice(0, 40).map(s =>
+      `- ${s.id} | name="${s.name}" | itinerary_name="${s.itinerary_name || s.name}" | ${s.category || s.type} | ${s.duration_hours || 'flex'}h`
+    ).join('\n');
+    
+    // Format current plan
+    const currentPlanFormatted = (currentDayPlan.selectedServices||[]).map(s => 
+      `- ${s.serviceName} (${s.timeSlot})`
+    ).join('\n') || '(none yet)';
+    
     // Reuse the same JSON shape as selectOptimalServices
     const prompt = `
   You are editing DAY ${dayInfo.dayNumber} of a bachelor party itinerary.
   
   CURRENT PLAN:
-  ${(currentDayPlan.selectedServices||[]).map(s => `- ${s.serviceName} (${s.timeSlot})`).join('\n') || '(none yet)'}
+  ${currentPlanFormatted}
   
   USER PREFERENCES:
   - Destination: ${userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown'}
@@ -176,15 +275,13 @@ export class AIServiceSelector {
   - Look for services that match the new_service_name in the available services
   - Prioritize exact name matches for substitutions
   
-  ${this.buildDeduplicationSection(usedServices, allowRepeats, userExplicitRequest)}
+  ${deduplicationSection}
   
   AVAILABLE SERVICES (you MUST select from these exact services):
-  ${allServices.slice(0, 40).map(s =>
-    `- ${s.id} | name="${s.name}" | itinerary_name="${s.itinerary_name || s.name}" | ${s.category || s.type} | ${s.duration_hours || 'flex'}h`
-  ).join('\n')}
-
+  ${availableServicesFormatted}
+  
   Time slots to choose from: ${dayInfo.timeSlots.join(', ')}.
-
+  
   CRITICAL RULES:
   1. For substitutions, match against name OR itinerary_name.
   2. When outputting serviceName, use itinerary_name if present; otherwise use name.
@@ -261,51 +358,74 @@ export class AIServiceSelector {
     }
   }
 
-  // UPDATED: Now accepts options for deduplication context
-  buildSelectionPrompt(allServices, userPreferences, dayInfo, options = {}) {
+  // UPDATED: Pre-format complex expressions before template rendering
+  async buildSelectionPrompt(allServices, userPreferences, dayInfo, options = {}) {
     const {
       usedServices = [],
       allowRepeats = false,
       userExplicitRequest = null
     } = options;
-    
+
     // Handle both conversation data format and test data format
     const destination = userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown';
     const groupSize = userPreferences.groupSize || userPreferences.facts?.groupSize?.value || 8;
     const duration = userPreferences.duration || dayInfo.totalDays || 3;
     const wildnessLevel = userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 3;
     const budget = userPreferences.budget || userPreferences.facts?.budget?.value || 'Not specified';
-    const specialRequests = userPreferences.specialRequests || 
-                           userPreferences.facts?.interestedActivities?.value?.join(', ') || 
-                           userPreferences.interestedActivities?.join(', ') || 
-                           'None';
-  
-    return `
-  BACHELOR PARTY PLANNING TASK:
-  - Destination: ${destination}
-  - Group Size: ${groupSize} people
-  - Duration: ${duration} days
-  - Wildness Level: ${wildnessLevel}/5
-  - Budget: ${budget}
-  - Special Requests: ${specialRequests}
-  - User Request: "${userExplicitRequest || 'Standard planning'}"
-  
-  CURRENT DAY: ${dayInfo.dayNumber} of ${duration}
-  - Day Type: ${dayInfo.dayNumber === 1 ? 'Arrival day' : dayInfo.dayNumber === duration ? 'Final day' : 'Main party day'}
-  - Time Slots to Fill: ${dayInfo.timeSlots.join(', ')}
-  
-  ${this.buildDeduplicationSection(usedServices, allowRepeats, userExplicitRequest)}
-  
+    const specialRequests =
+      userPreferences.specialRequests ||
+      userPreferences.facts?.interestedActivities?.value?.join(', ') ||
+      userPreferences.interestedActivities?.join(', ') ||
+      'None';
+
+    // BUILD THE DEDUPLICATION SECTION HERE - before rendering template
+    const deduplicationSection = this.buildDeduplicationSection(usedServices, allowRepeats, userExplicitRequest);
+
+    // PRE-FORMAT THE SERVICES LIST to avoid complex template expressions
+    const availableServicesFormatted = allServices.map(service => 
+      `- ID: ${service.id} | Name: "${service.name}" | Category: ${service.category || service.type} | Description: ${(service.description || '').substring(0, 100)} | Price: ${service.price_cad || service.price_usd || 'TBD'} ${service.price_cad ? 'CAD' : 'USD'} | Duration: ${service.duration_hours || 'Flexible'} hours`
+    ).join('\n');
+
+    // PRE-FORMAT THE USER REQUEST MATCHING SECTION
+    const userRequestMatchingSection = userExplicitRequest ? 
+      `- User specifically requested: "${userExplicitRequest}"
+  - Look for services that match this request in name or description
+  - If user said "bottle service", find services with "bottle" in the name
+  - If user said "strip club", find "gentlemen's club" or similar services` : '';
+
+    // Compute day type
+    const dayType = dayInfo.dayNumber === 1 ? 'Arrival day' : 
+                    dayInfo.dayNumber === duration ? 'Final day' : 
+                    'Main party day';
+    
+    // Format time slots
+    const timeSlotsString = dayInfo.timeSlots.join(', ');
+
+    // Load external template (same pattern as reducer)
+    let template;
+    try {
+      template = await this.loadTemplate("selector.system.txt");
+    } catch (e) {
+      // Hard fallback: if the file is missing, degrade gracefully to the old inline text
+      template = `
+BACHELOR PARTY PLANNING TASK:
+  - Destination: \${destination}
+  - Group Size: \${groupSize} people
+  - Duration: \${duration} days
+  - Wildness Level: \${wildnessLevel}/5
+  - Budget: \${budget}
+  - Special Requests: \${specialRequests}
+  - User Request: "\${userExplicitRequest || 'Standard planning'}"
+
+  CURRENT DAY: \${dayInfo.dayNumber} of \${duration}
+  - Day Type: \${dayType}
+  - Time Slots to Fill: \${timeSlotsString}
+
+  \${deduplicationSection}
+
   AVAILABLE SERVICES (YOU MUST ONLY SELECT FROM THESE):
-  ${allServices.map(service => `
-  - ID: ${service.id}
-  - Name: "${service.name}"
-  - Category: ${service.category || service.type}
-  - Description: ${(service.description || '').substring(0, 100)}
-  - Price: ${service.price_cad || service.price_usd || 'TBD'} ${service.price_cad ? 'CAD' : 'USD'}
-  - Duration: ${service.duration_hours || 'Flexible'} hours
-  `).join('\n')}
-  
+  \${availableServicesFormatted}
+
   CRITICAL SELECTION RULES:
   1. You MUST ONLY use serviceId and serviceName from the AVAILABLE SERVICES list above
   2. DO NOT create, invent, or modify service names
@@ -314,30 +434,25 @@ export class AIServiceSelector {
   5. If the user requests "strip club" and there are gentlemen's club services available, select from those
   6. Match user requests to the closest available service by name and description
   7. NEVER hallucinate services that aren't in the list
-  
+
   USER REQUEST MATCHING:
-  ${userExplicitRequest ? `
-  - User specifically requested: "${userExplicitRequest}"
-  - Look for services that match this request in name or description
-  - If user said "bottle service", find services with "bottle" in the name
-  - If user said "strip club", find "gentlemen's club" or similar services
-  ` : ''}
-  
+  \${userRequestMatchingSection}
+
   RETURN FORMAT - EXACT JSON ONLY:
   {
     "selectedServices": [
       {
         "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES",
-        "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES", 
+        "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES",
         "timeSlot": "afternoon|evening|night|late_night",
         "reason": "Why this exact service was selected",
         "estimatedDuration": "X hours",
-        "groupSuitability": "How it works for ${groupSize} people"
+        "groupSuitability": "How it works for \${groupSize} people"
       }
     ],
     "alternativeOptions": [
       {
-        "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES", 
+        "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES",
         "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES",
         "reason": "Why this is a good alternative"
       }
@@ -345,6 +460,24 @@ export class AIServiceSelector {
     "dayTheme": "Brief description of this day's overall vibe",
     "logisticsNotes": "Any important timing or transportation considerations"
   }`;
+    }
+
+    // Render with full context - all complex expressions pre-computed
+    return this.renderTemplate(template, {
+      destination,
+      groupSize,
+      duration,
+      wildnessLevel,
+      budget,
+      specialRequests,
+      userExplicitRequest,
+      dayInfo,
+      dayType,
+      timeSlotsString,
+      deduplicationSection,
+      availableServicesFormatted,  // Pre-formatted string instead of complex expression
+      userRequestMatchingSection   // Pre-formatted string
+    });
   }
 
   // NEW: Helper method to build deduplication instructions

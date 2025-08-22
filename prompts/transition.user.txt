@@ -1,0 +1,21 @@
+You are transitioning from gathering information to planning a bachelor party itinerary. 
+  
+  CONTEXT:
+  - Recent conversation: ${recentMessages}
+  - All gathered facts: ${facts}
+  - Trip duration: ${totalDays} days
+  - First day: ${firstDayName}
+  
+  Create a smooth, natural transition that:
+  1. Briefly acknowledges the last piece of information gathered (if relevant)
+  2. Shows enthusiasm about planning
+  3. Smoothly introduces the day-by-day planning approach
+  4. Feels conversational, not robotic
+  
+  Examples of good transitions:
+  - "Perfect! 22-year-olds are gonna love what I have in mind. Let's map out your ${totalDays} days in Austin..."
+  - "Got it! With that age group, we can definitely go all out. Here's how I'm thinking we structure your ${totalDays} days..."
+  
+  Keep it to 1-2 sentences max. Be enthusiastic and personalized to their situation.
+  
+  Return just the transition text, nothing else.

@@ -1,10 +1,95 @@
 import OpenAI from 'openai';
+import fs from "fs/promises";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class AIResponseGenerator {
   constructor() {
     this.openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY
     });
+    this.templateCache = new Map();
+  }
+
+  // Template loading and rendering methods (copied from ChatHandler)
+  async loadTemplate(filename, { cache = process.env.NODE_ENV === "production" } = {}) {
+    if (cache && this.templateCache.has(filename)) {
+      return this.templateCache.get(filename);
+    }
+    const filePath = path.resolve(__dirname, "../prompts", filename); // api -> ../prompts
+    const text = await fs.readFile(filePath, "utf8");
+    if (cache) this.templateCache.set(filename, text);
+    return text;
+  }
+
+  // Render ${...} expressions using the provided context.
+  renderTemplate(template, context) {
+    
+    // Log each context value's type and sample
+    Object.entries(context).forEach(([key, value]) => {
+      const type = typeof value;
+      let sample = '';
+      if (type === 'object' && value !== null) {
+        sample = JSON.stringify(value, null, 2).substring(0, 200) + '...';
+      } else if (type === 'string') {
+        sample = value.substring(0, 100) + (value.length > 100 ? '...' : '');
+      } else {
+        sample = String(value);
+      }
+    });
+  
+    // Find problematic template expressions
+    const expressions = template.match(/\$\{[^}]+\}/g) || [];
+  
+    const keys = Object.keys(context);
+    const vals = Object.values(context);
+  
+    // Build a real template literal to preserve ${…} semantics
+    const body = "return `" +
+      template
+        .replace(/\\/g, "\\\\")
+        .replace(/`/g, "\\`") +
+      "`;";
+  
+    try {
+      const fn = new Function(...keys, body);
+      
+      const out = fn(...vals);
+      return out == null ? "" : String(out);
+    } catch (e) {
+      console.error("\n!!! TEMPLATE RENDER ERROR !!!");
+      console.error("Error type:", e.constructor.name);
+      console.error("Error message:", e.message);
+      console.error("Error stack:", e.stack);
+      
+      // Try to identify which expression caused the error
+      console.log("\nAttempting to identify problematic expression...");
+      expressions.forEach((expr, i) => {
+        try {
+          // Try to evaluate each expression in isolation
+          const testBody = `return \`\${${expr.slice(2, -1)}}\`;`;
+          const testFn = new Function(...keys, testBody);
+          testFn(...vals);
+          console.log(`Expression ${i} OK: ${expr}`);
+        } catch (testErr) {
+          console.error(`Expression ${i} FAILED: ${expr}`);
+          console.error(`  Error: ${testErr.message}`);
+        }
+      });
+  
+      console.warn("\nFalling back to simple replacement...");
+  
+      // --- Fallback: only replace ${var} and ${a.b.c}; ignore complex expressions ---
+      const get = (obj, path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
+      return template.replace(/\$\{([a-zA-Z_$][\w$]*(?:\.[a-zA-Z_$][\w$]*)*)\}/g, (_, path) => {
+        const v = get(context, path);
+        console.log(`Replacing ${path} with:`, v);
+        return v == null ? "" : String(v);
+      });
+    }
   }
 
   async generateItineraryResponse(dayPlan, dayInfo, userPreferences) {
@@ -20,55 +105,47 @@ export class AIResponseGenerator {
     const closingInstruction = isLastDay
       ? `7. Closing: ask for approval or tweaks. Do NOT mention another day.`
       : `7. Closing: ask for approval to move to day ${nextDayNumber}.`;
-  
-    const prompt = `
-  You are Connected, a bachelor party planner. You're experienced and helpful, but keep it natural and conversational.
-  
-  CONTEXT:
-  - Planning day ${dayInfo.dayNumber} of ${totalDays} for ${userPreferences.groupSize} guys in ${userPreferences.destination}
-  - User mentioned: ${userPreferences.specialRequests || userPreferences.interestedActivities?.join(', ') || 'having a great time'}
-  - Wildness level: ${userPreferences.wildnessLevel}/5
-  - Budget: ${userPreferences.budget || 'Not specified'}
-  
-  SELECTED SERVICES FOR THIS DAY:
-  ${selectedServices.map(service => `
-  - ${service.serviceName} (${service.timeSlot})
+
+    // PRE-FORMAT THE SELECTED SERVICES to avoid complex template expressions
+    const selectedServicesFormatted = selectedServices.map(service => 
+      `  - ${service.serviceName} (${service.timeSlot})
   - Why: ${service.reason}
   - Duration: ${service.estimatedDuration}
-  - Group fit: ${service.groupSuitability}
-  `).join('\n')}
-  
-  DAY THEME: ${dayTheme}
-  LOGISTICS NOTES: ${logisticsNotes}
-  
-  INSTRUCTIONS:
-  1. Write naturally and conversationally - like you're explaining the plan to a friend
-  2. Present the day's plan without over-the-top excitement
-  3. Explain WHY these selections work together and flow well
-  4. Address their specific requests naturally
-  5. Include practical details (timing, logistics) when relevant
-  6. Build reasonable anticipation without being overly dramatic
-  ${closingInstruction}
-  8. Keep it under 125 words and sound like a real person
-  
-  TONE GUIDELINES:
-  - Confident but not overly enthusiastic
-  - Helpful and explanatory
-  - Natural conversational flow
-  - Avoid phrases like "Yo!", "Ready to unleash the beast", "Let's gooo"
-  - No excessive exclamation points or hype language
-  - Focus on practical benefits and good flow
-  
-  AVOID:
-  - Overly excited introductions
-  - Excessive enthusiasm or hype
-  - Generic template language
-  - Too many exclamation points
-  - Forgetting their specific requests
-  - Being overly formal OR overly casual
-  `;
-  
+  - Group fit: ${service.groupSuitability}`
+    ).join('\n');
+
+    // Extract values from userPreferences with proper fallbacks
+    const groupSize = userPreferences.groupSize || userPreferences.facts?.groupSize?.value || 8;
+    const destination = userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown';
+    const wildnessLevel = userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 3;
+    const budget = userPreferences.budget || userPreferences.facts?.budget?.value || 'Not specified';
+    const specialRequests = userPreferences.specialRequests || 
+                           userPreferences.interestedActivities?.join(', ') || 
+                           userPreferences.facts?.interestedActivities?.value?.join(', ') || 
+                           'having a great time';
+
+    // Extract dayInfo values with proper fallbacks
+    const dayNumber = dayInfo?.dayNumber || 1;
+
     try {
+      // Load the template from response.user.txt
+      const responseTemplate = await this.loadTemplate("response.user.txt");
+      
+      // Render the template with context - all complex expressions pre-computed
+      const prompt = this.renderTemplate(responseTemplate, {
+        dayNumber,
+        totalDays,
+        groupSize,
+        destination,
+        specialRequests,
+        wildnessLevel,
+        budget,
+        selectedServicesFormatted,  // Pre-formatted string instead of complex expression
+        dayTheme,
+        logisticsNotes,
+        closingInstruction
+      });
+
       const response = await this.openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -81,7 +158,7 @@ export class AIResponseGenerator {
         temperature: 0.6, // Reduced from 0.8 for more consistent tone
         max_tokens: 300
       });
-  
+
       return response.choices[0].message.content;
     } catch (error) {
       console.error('AI response generation error:', error);
@@ -105,7 +182,7 @@ export class AIResponseGenerator {
       response += `${timeSlot}: ${service.serviceName}`;
       if (index < selectedServices.length - 1) response += '. ';
     });
-  
+
     return isLastDay
       ? `${response}. Does this look good, or want me to adjust anything?`
       : `${response}. This should flow well. Ready to map out day ${(dayInfo.dayNumber || 1) + 1}?`;
