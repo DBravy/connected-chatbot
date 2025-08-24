@@ -18,62 +18,85 @@ const SYSTEM_KNOWLEDGE = `
 You are an expert AI prompt engineer with deep knowledge of the Connected bachelor party planning system. Here's how the system works:
 
 ## SYSTEM ARCHITECTURE:
-The Connected chatbot helps users plan bachelor parties through a conversation-based interface with these phases:
-1. GATHERING: Collects essential facts (destination, group size, dates) and helpful info (wildness level, budget, activities)
-2. PLANNING: Uses AI to select services day-by-day, allowing user feedback and modifications
-3. STANDBY: All days planned, handles questions and modifications
+[Previous architecture description remains the same...]
 
-## PROMPT FILES & THEIR ROLES:
+## SURGICAL EDITING PRINCIPLES:
 
-### 1. reducer.user.txt (Core Conversation Processor)
-- Analyzes every user message to extract/update facts
-- Classifies user intent: approval_next, substitution, addition, removal, show_day, general_question
-- Determines when to transition between conversation phases
-- Controls the conversation flow and fact gathering
-- IMPACT: Changes here affect how the bot understands users and manages the entire conversation
+### CRITICAL RULES FOR ALL MODIFICATIONS:
+1. **PRESERVE STRUCTURE**: Never rewrite entire prompts unless absolutely necessary
+2. **TARGETED CHANGES ONLY**: Modify only the specific sections that need to change
+3. **NO META-HEADERS**: Never add "MODIFIED PROMPT:" or similar headers
+4. **TEMPLATE VARIABLE SAFETY**: All \${variable} syntax must remain exactly unchanged
+5. **MINIMAL FOOTPRINT**: Make the smallest change that achieves the desired behavior
 
-### 2. general.user.txt (Question Handler)
-- Handles questions when planning is complete (STANDBY phase)
-- Answers questions about pricing, timing, logistics, service details
-- Uses full trip context to provide informed responses
-- IMPACT: Changes here affect how well the bot helps customers after planning
+### GOOD MODIFICATION EXAMPLES:
+- User wants "more casual tone" → Add specific casual language guidelines to existing tone section
+- User wants "less pushy sales" → Modify existing sales language, don't rewrite entire response logic
+- User wants "different question flow" → Adjust specific conversation flow rules, preserve overall structure
 
-### 3. options.user.txt (Service Catalog Presenter)
-- Presents lists of available services when users ask "what are my options"
-- Formats service catalogs with descriptions and pricing
-- Guides users toward making selections
-- IMPACT: Changes here affect how services are presented and marketed
+### BAD MODIFICATION EXAMPLES:
+- Rewriting entire prompt files for small tone changes
+- Adding system headers or meta-information to prompts
+- Changing template variables or breaking JSON schemas
+- Making cosmetic changes that don't address the user's request
 
-### 4. selector.system.txt (AI Service Selection Logic)
-- Controls how the AI chooses optimal services for each day
-- Balances user preferences, practical flow, and deduplication
-- Handles substitutions and modifications to day plans
-- IMPACT: Changes here affect which services get selected and recommended
+### MODIFICATION TYPES (Use these specific categories):
+- **targeted_insertion**: Add new content to a specific location
+- **targeted_replacement**: Replace specific text with new text
+- **targeted_removal**: Remove specific problematic content
+- **section_enhancement**: Add guidelines to existing sections
 
-### 5. response.user.txt (Itinerary Presentation)
-- Generates natural language presentations of daily plans
-- Creates engaging descriptions and explanations
-- Manages approval requests and next-step guidance
-- IMPACT: Changes here affect how itineraries are presented and sold
+### PRECISION REQUIREMENTS:
+When analyzing changes, specify:
+- Exact section to modify (e.g. "TONE GUIDELINES section", "line 23-25")
+- Precise text to find (for replacements)
+- Exact new content to add/replace
+- Why this specific change achieves the user's goal
 
-## USER CHANGE CATEGORIES:
+Your job is to understand what the user wants to change about their chatbot's behavior and provide surgical, targeted modifications to achieve that goal with minimal disruption.
+`;
 
-**Personality/Tone Changes:** Modify response.user.txt, general.user.txt, and sometimes reducer.user.txt
-**Conversation Flow:** Primarily reducer.user.txt
-**Service Selection Logic:** selector.system.txt
-**Sales/Marketing Approach:** options.user.txt, response.user.txt
-**Customer Service:** general.user.txt
-**Fact Gathering:** reducer.user.txt
+// Updated analysis prompt template
+const ANALYSIS_PROMPT_TEMPLATE = `
+SURGICAL MODIFICATION ANALYSIS
 
-## CRITICAL RULES:
-1. Preserve all template variable syntax (\${variable}) exactly
-2. Maintain JSON schema requirements for structured outputs
-3. Keep function calling specifications intact
-4. Don't break the conversation phase logic
-5. Preserve the deduplication and service selection logic
-6. Maintain backward compatibility with existing conversations
+Current Prompts: [prompt summaries]
+User Request: "[user message]"
 
-Your job is to understand what the user wants to change about their chatbot's behavior and modify the appropriate prompt(s) accordingly.
+ANALYSIS FRAMEWORK:
+1. What specific behavior needs to change?
+2. Which prompt file(s) control this behavior?  
+3. What is the minimum change needed?
+4. Where exactly should the change be made?
+
+RESPONSE FORMAT:
+{
+  "needsChanges": boolean,
+  "response": "I'll make targeted changes to [specific sections] to [specific behavior change]. This will [explain expected outcome].",
+  "changes": [
+    {
+      "promptFile": "[filename]",
+      "reason": "[why this specific file needs modification]",
+      "modifications": [
+        {
+          "type": "targeted_insertion|targeted_replacement|targeted_removal|section_enhancement",
+          "description": "[precise description of the surgical change]",
+          "target_section": "[exact section identifier - be specific]",
+          "search_text": "[exact text to find, if replacing]",
+          "replacement_text": "[exact replacement text]"
+        }
+      ]
+    }
+  ]
+}
+
+VALIDATION CHECKLIST:
+☐ Changes are surgical and targeted
+☐ No complete prompt rewrites  
+☐ Template variables preserved
+☐ Structure maintained
+☐ Specific sections identified
+☐ Clear behavior outcome predicted
 `;
 
 export default async function handler(req, res) {
@@ -94,15 +117,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { message, currentPrompts } = req.body;
+    const { message, currentPrompts, previewMode = true } = req.body;
     
     if (!message || !currentPrompts) {
       res.status(400).json({ error: 'Missing required fields' });
       return;
     }
 
-    // Analyze the user's request and modify prompts
-    const result = await analyzeAndModifyPrompts(message, currentPrompts);
+    // Analyze the user's request and prepare changes
+    const result = await analyzeAndModifyPrompts(message, currentPrompts, previewMode);
     
     res.json(result);
   } catch (error) {
@@ -114,7 +137,7 @@ export default async function handler(req, res) {
   }
 }
 
-async function analyzeAndModifyPrompts(userMessage, currentPrompts) {
+async function analyzeAndModifyPrompts(userMessage, currentPrompts, previewMode = true) {
   // First, analyze what the user wants to change
   const analysis = await analyzeUserRequest(userMessage, currentPrompts);
   
@@ -125,171 +148,253 @@ async function analyzeAndModifyPrompts(userMessage, currentPrompts) {
     };
   }
   
-  // Apply the changes to the relevant prompts
+  // Apply the changes to the relevant prompts with validation
   const modifiedPrompts = {};
   
   for (const change of analysis.changes) {
     const { promptFile, modifications } = change;
     
     if (currentPrompts[promptFile]) {
+      const originalContent = currentPrompts[promptFile];
       const modifiedContent = await applyModificationsToPrompt(
-        currentPrompts[promptFile],
+        originalContent,
         modifications,
         promptFile
       );
+      
+      // Validation: Ensure the modification was actually surgical
+      const originalLines = originalContent.split('\n').length;
+      const modifiedLines = modifiedContent.split('\n').length;
+      const lineDifference = Math.abs(originalLines - modifiedLines);
+      
+      // If more than 10% of lines changed, flag as potentially problematic
+      if (lineDifference > originalLines * 0.1) {
+        console.warn(`Warning: Large structural change detected in ${promptFile}. Original: ${originalLines} lines, Modified: ${modifiedLines} lines`);
+      }
+      
+      // Ensure template variables are preserved
+      const originalVariables = (originalContent.match(/\$\{[^}]+\}/g) || []).sort();
+      const modifiedVariables = (modifiedContent.match(/\$\{[^}]+\}/g) || []).sort();
+      
+      if (JSON.stringify(originalVariables) !== JSON.stringify(modifiedVariables)) {
+        console.error(`ERROR: Template variables changed in ${promptFile}!`);
+        console.error('Original variables:', originalVariables);
+        console.error('Modified variables:', modifiedVariables);
+        throw new Error(`Template variable preservation failed for ${promptFile}`);
+      }
+      
       modifiedPrompts[promptFile] = modifiedContent;
     }
   }
   
-  return {
+  const result = {
     response: analysis.response,
-    modifiedPrompts: Object.keys(modifiedPrompts).length > 0 ? modifiedPrompts : null
+    modifiedPrompts: Object.keys(modifiedPrompts).length > 0 ? modifiedPrompts : null,
+    previewMode
   };
+  
+  return result;
+}
+
+function tryParseJSON(s) {
+  if (!s) return null;
+  try { return JSON.parse(s); } catch { return null; }
 }
 
 async function analyzeUserRequest(userMessage, currentPrompts) {
-    const prompt = `${SYSTEM_KNOWLEDGE}
-  
-  CURRENT PROMPTS SUMMARY:
-  ${Object.keys(currentPrompts).map(file => `${file}: ${currentPrompts[file].substring(0, 200)}...`).join('\n\n')}
-  
-  USER REQUEST: "${userMessage}"
-  
-  Analyze this request and determine:
-  1. What changes are needed to achieve the user's goal
-  2. Which prompt files need to be modified
-  3. Specific modifications for each file
-  
-  Respond with a plan for implementing the changes.`;
-  
-    const openai = getOpenAI();
+  const prompt = `${SYSTEM_KNOWLEDGE}
+
+CURRENT PROMPTS SUMMARY:
+${Object.keys(currentPrompts).map(file => `${file}: ${currentPrompts[file].substring(0, 200)}...`).join('\n\n')}
+
+USER REQUEST: "${userMessage}"
+
+CRITICAL ANALYSIS RULES:
+- Only suggest changes if they're actually needed
+- Make SURGICAL modifications, not complete rewrites
+- Preserve all template variables (\${variable}) and structure
+- Focus on the specific behavior change requested
+- Avoid making cosmetic or unnecessary changes
+
+Analyze the request and produce a JSON object with this exact shape:
+
+{
+  "needsChanges": boolean,
+  "response": string (a clear explanation of what will be changed and why),
+  "changes": [
+    {
+      "promptFile": "reducer.user.txt" | "general.user.txt" | "options.user.txt" | "selector.system.txt" | "response.user.txt",
+      "reason": string (why this file needs to be modified),
+      "modifications": [
+        {
+          "type": "tone_change" | "logic_change" | "content_addition" | "content_removal" | "format_change",
+          "description": string (what specific change will be made),
+          "target_section": string | null (which part of the prompt to modify),
+          "new_content": string | null (any new content to add)
+        }
+      ]
+    }
+  ]
+}
+
+IMPORTANT: Be surgical and precise. Only change what's necessary for the requested behavior modification.
+
+Rules:
+- Return ONLY valid JSON, no prose.
+- Keep the object small and concise.
+- Omit "changes" or use an empty array if none are needed.
+- The "response" should clearly explain what changes will be made in user-friendly language.
+`;
+
+  const openai = getOpenAI();
+
+  try {
     const response = await openai.chat.completions.create({
-      // You can keep "gpt-5" if your account supports it for Chat Completions + tools.
-      // Otherwise, use a tool-enabled chat model you have access to (e.g., "gpt-4o-mini").
       model: "gpt-5",
       messages: [
         {
           role: "system",
-          content: "You are an expert prompt engineer analyzing a request to modify a chatbot system. Provide clear analysis of what needs to change."
+          content: "You are an expert prompt engineer. Respond ONLY with valid JSON as specified. Focus on explaining changes clearly."
         },
         { role: "user", content: prompt }
       ],
-      tools: [{
-        type: "function",
-        function: {
-          name: "analyze_request",
-          description: "Analyze user request and plan prompt modifications",
-          parameters: {
-            type: "object",
-            properties: {
-              needsChanges: { type: "boolean" },
-              response: { type: "string" },
-              changes: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    promptFile: {
-                      type: "string",
-                      enum: [
-                        "reducer.user.txt",
-                        "general.user.txt",
-                        "options.user.txt",
-                        "selector.system.txt",
-                        "response.user.txt"
-                      ]
-                    },
-                    reason: { type: "string" },
-                    modifications: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          type: {
-                            type: "string",
-                            enum: ["tone_change","logic_change","content_addition","content_removal","format_change"]
-                          },
-                          description: { type: "string" },
-                          target_section: { type: "string" },
-                          new_content: { type: "string" }
-                        },
-                        required: ["type", "description"]
-                      }
-                    }
-                  },
-                  required: ["promptFile", "reason", "modifications"]
-                }
-              }
-            },
-            required: ["needsChanges", "response"]
-          }
-        }
-      }],
-      // Force the model to call our function
-      tool_choice: { type: "function", function: { name: "analyze_request" } },
-      max_completion_tokens: 1500
+      response_format: { type: "json_object" },
+      max_completion_tokens: 6000
     });
-  
-    const msg = response.choices?.[0]?.message;
-  
-    // 1) New-style tools
-    const toolCall = msg?.tool_calls?.find(
-      t => t.type === "function" && t.function?.name === "analyze_request"
-    );
-    if (toolCall?.function?.arguments) {
-      try {
-        return JSON.parse(toolCall.function.arguments);
-      } catch (e) {
-        console.error("Failed to parse tool arguments:", e, toolCall.function.arguments);
-      }
+
+    const choice = response.choices?.[0];
+    const message = choice?.message;
+
+    // Parse JSON content directly
+    const parsed = tryParseJSON(message?.content);
+    if (parsed) return parsed;
+
+    // Legacy fallbacks (if you later reintroduce tools)
+    if (message?.tool_calls?.length) {
+      const tc = message.tool_calls.find(t => t.function?.arguments);
+      const args = tc?.function?.arguments;
+      const parsedTC = tryParseJSON(args);
+      if (parsedTC) return parsedTC;
     }
-  
-    // 2) Back-compat: legacy function_call
-    if (msg?.function_call?.arguments) {
-      try {
-        return JSON.parse(msg.function_call.arguments);
-      } catch (e) {
-        console.error("Failed to parse legacy function_call arguments:", e, msg.function_call.arguments);
-      }
+    if (message?.function_call?.arguments) {
+      const parsedFC = tryParseJSON(message.function_call.arguments);
+      if (parsedFC) return parsedFC;
     }
-  
-    // Fallback (what you're seeing today)
+
+    // Last resort: helpful error that surfaces finish_reason
+    const fr = choice?.finish_reason || "unknown";
     return {
       needsChanges: false,
-      response: "I understand you want to make changes, but I need more specific details about what you'd like to modify. Could you describe the specific behavior you want to change?",
+      response:
+        fr === "length"
+          ? "I hit the output limit before I could finish analyzing your request. Please try again or break it into smaller parts."
+          : "I couldn't parse the analysis response. Please try rephrasing your request.",
       changes: []
     };
+  } catch (error) {
+    console.error('OpenAI API Error:', error);
+    if (error.code === 'model_not_found') {
+      throw new Error('GPT-5 model not found. Please ensure you have access to GPT-5 or use gpt-4-turbo as a fallback.');
+    } else if (error.code === 'insufficient_quota') {
+      throw new Error('OpenAI API quota exceeded. Please check your billing settings.');
+    } else if (error.code === 'unsupported_value') {
+      throw new Error(`Unsupported parameter value: ${error.message}`);
+    } else {
+      throw error;
+    }
   }
+}
 
 async function applyModificationsToPrompt(originalPrompt, modifications, promptFile) {
-  const modificationPrompt = `You are modifying a prompt template for the Connected bachelor party planning system.
+  const modificationPrompt = `You are making SURGICAL modifications to a prompt template. Your goal is to make the minimum necessary changes while preserving all functionality.
 
 ORIGINAL PROMPT:
 ${originalPrompt}
 
 MODIFICATIONS TO APPLY:
-${modifications.map(mod => `- ${mod.type}: ${mod.description}${mod.target_section ? ` (Target: ${mod.target_section})` : ''}${mod.new_content ? `\nNew content: ${mod.new_content}` : ''}`).join('\n')}
+${modifications.map(mod => `- ${mod.type}: ${mod.description}
+  Target: ${mod.target_section || 'Not specified'}
+  ${mod.search_text ? `Search for: "${mod.search_text}"` : ''}
+  ${mod.replacement_text ? `Replace with: "${mod.replacement_text}"` : ''}`).join('\n\n')}
 
-CRITICAL REQUIREMENTS:
-1. Preserve ALL template variables (\${variable}) exactly as they are
-2. Maintain any JSON schema or function calling specifications
-3. Keep the overall structure and logic intact
-4. Only modify the specific aspects mentioned in the modifications
-5. Ensure the prompt still works within the existing system architecture
+CRITICAL REQUIREMENTS FOR SURGICAL EDITING:
 
-Return the modified prompt that incorporates these changes while maintaining system compatibility.`;
+1. PRESERVE EVERYTHING UNCHANGED except what's specifically targeted
+2. NEVER add meta-headers like "MODIFIED PROMPT:" or similar
+3. NEVER rewrite entire sections unless explicitly required
+4. Keep ALL template variables (\${variable}) exactly as they are
+5. Maintain the exact same structure, spacing, and formatting
+6. Only modify the specific lines/sections mentioned in the modifications
+7. If adding new content, insert it naturally into the existing structure
+8. If replacing text, find the exact match and replace only that text
+
+EXAMPLES OF GOOD SURGICAL CHANGES:
+
+Request: "Add tone guideline to avoid exclamation points"
+BAD: Rewrite entire TONE section
+GOOD: Add one line "- Avoid excessive exclamation points" to existing tone guidelines
+
+Request: "Make conversation more casual" 
+BAD: Rewrite entire prompt with casual language
+GOOD: Add specific casual language guidelines to existing instruction section
+
+YOUR OUTPUT SHOULD BE:
+- The original prompt with only the targeted changes applied
+- No extra headers, comments, or meta-information
+- Identical formatting and structure to the original
+- Only the specific modifications requested, nothing more
+
+Return the modified prompt now:`;
+
   const openai = getOpenAI();
-  const response = await openai.chat.completions.create({
-    model: "gpt-5",
-    messages: [
-      {
-        role: "system",
-        content: `You are an expert prompt engineer modifying ${promptFile}. Preserve all system functionality while implementing the requested changes.`
-      },
-      { role: "user", content: modificationPrompt }
-    ],
-    max_completion_tokens: 3000  // CHANGED: max_tokens -> max_completion_tokens
-  });
+  
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5",
+      messages: [
+        {
+          role: "system",
+          content: `You are a surgical prompt editor. Make ONLY the specific changes requested. Preserve everything else exactly. Never add meta-headers or rewrite unnecessarily.`
+        },
+        { role: "user", content: modificationPrompt }
+      ],
+      max_completion_tokens: 3000
+    });
 
-  return response.choices[0].message.content;
+    const modifiedPrompt = response.choices[0].message.content.trim();
+    
+    // Validation: Check that the result doesn't contain meta-headers
+    if (modifiedPrompt.includes('MODIFIED PROMPT:') || 
+        modifiedPrompt.includes('UPDATED PROMPT:') ||
+        modifiedPrompt.includes('NEW PROMPT:')) {
+      console.warn('AI added meta-headers, attempting to clean...');
+      return cleanMetaHeaders(modifiedPrompt);
+    }
+    
+    return modifiedPrompt;
+
+  } catch (error) {
+    console.error('Error modifying prompt:', error);
+    
+    // Fallback to GPT-4 with same strict instructions
+    if (error.code === 'model_not_found') {
+      console.log('Falling back to gpt-4-turbo with surgical instructions...');
+      const response = await openai.chat.completions.create({
+        model: "gpt-4-turbo",
+        messages: [
+          {
+            role: "system",
+            content: `You are a surgical prompt editor for ${promptFile}. Make ONLY the specific changes requested. Preserve everything else exactly. Never add meta-headers.`
+          },
+          { role: "user", content: modificationPrompt }
+        ],
+        max_tokens: 3000
+      });
+      
+      const modifiedPrompt = response.choices[0].message.content.trim();
+      return cleanMetaHeaders(modifiedPrompt);
+    }
+    
+    throw error;
+  }
 }

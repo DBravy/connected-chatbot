@@ -187,6 +187,24 @@
             background: #e8690b;
         }
         
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover:not(:disabled) {
+            background: #218838;
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            background: #c82333;
+        }
+        
         .monaco-editor-container {
             flex: 1;
             border: 1px solid #e5e5e7;
@@ -260,6 +278,143 @@
             border: 1px solid #e5e5e7;
         }
         
+        /* Change Preview Styles */
+        .change-preview {
+            background: white;
+            border: 2px solid #007aff;
+            border-radius: 12px;
+            margin: 1rem 0;
+            overflow: hidden;
+            max-width: none;
+            width: 100%;
+        }
+        
+        .change-preview-header {
+            background: #007aff;
+            color: white;
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .change-preview-icon {
+            width: 20px;
+            height: 20px;
+        }
+        
+        .change-preview-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        
+        .change-preview-content {
+            padding: 1rem;
+        }
+        
+        .change-summary {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .change-summary h4 {
+            margin-bottom: 0.5rem;
+            color: #1d1d1f;
+        }
+        
+        .change-summary p {
+            color: #666;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        
+        .changed-files {
+            margin-bottom: 1rem;
+        }
+        
+        .changed-files h4 {
+            margin-bottom: 0.5rem;
+            color: #1d1d1f;
+            font-size: 1rem;
+        }
+        
+        .file-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        
+        .file-tag {
+            background: #e3f2fd;
+            color: #1976d2;
+            padding: 0.25rem 0.75rem;
+            border-radius: 16px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        
+        .diff-container {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .diff-file {
+            margin-bottom: 1rem;
+            border: 1px solid #e1e5e9;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .diff-file-header {
+            background: #f6f8fa;
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: #24292e;
+            border-bottom: 1px solid #e1e5e9;
+        }
+        
+        .diff-content {
+            font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+            font-size: 0.8rem;
+            line-height: 1.4;
+        }
+        
+        .diff-line {
+            padding: 0.25rem 1rem;
+            border-left: 4px solid transparent;
+            white-space: pre-wrap;
+        }
+        
+        .diff-line-added {
+            background-color: #e6ffed;
+            border-left-color: #28a745;
+        }
+        
+        .diff-line-removed {
+            background-color: #ffeef0;
+            border-left-color: #d73a49;
+        }
+        
+        .diff-line-context {
+            background-color: #fff;
+            color: #6a737d;
+        }
+        
+        .change-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            padding-top: 1rem;
+            border-top: 1px solid #e5e5e7;
+        }
+        
         .chat-input-container {
             padding: 1rem;
             border-top: 1px solid #e5e5e7;
@@ -314,26 +469,60 @@
             transform: none;
         }
         
-        .loading {
+        /* Loading indicator styles - matching the main chat interface */
+        .loading-indicator {
+            margin-bottom: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+        
+        .loading-bubble {
+            background: white;
+            border: 1px solid #e5e5e7;
+            border-radius: 18px;
+            padding: 1rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            color: #666;
+            max-width: 80%;
+        }
+        
+        .loading-text {
             font-style: italic;
+            color: #666;
         }
         
-        .spinner {
-            width: 16px;
-            height: 16px;
-            border: 2px solid #e5e5e7;
-            border-top: 2px solid #007aff;
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+        
+        .typing-dot {
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            background-color: #666;
+            animation: typing 1.4s infinite ease-in-out;
         }
         
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .typing-dot:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+        
+        .typing-dot:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+        
+        @keyframes typing {
+            0%, 80%, 100% {
+                transform: scale(0.8);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
         
         .hidden {
@@ -474,7 +663,7 @@
                                 <br>• Update response styles and formats
                                 <br>• Fine-tune customer service approaches
                                 <br><br>
-                                Just tell me what behavior you'd like to change, and I'll update the appropriate prompts for you.
+                                Just tell me what behavior you'd like to change, and I'll show you a preview of the changes before applying them.
                             </div>
                         </div>
                     </div>
@@ -518,6 +707,7 @@
         let currentPrompt = 'reducer.user.txt';
         let prompts = {};
         let pendingAction = null;
+        let pendingChanges = null; // Store changes waiting for approval
         
         // Initialize Monaco Editor
         require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs' }});
@@ -570,13 +760,18 @@
             currentPrompt = promptName;
             document.querySelector('.editor-title').textContent = promptName;
             
+            // Switch to editor tab if currently on AI assistant
+            const currentTab = document.querySelector('.tab.active').dataset.tab;
+            if (currentTab !== 'editor') {
+                switchTab('editor');
+            }
+            
             if (prompts[promptName]) {
                 editor.setValue(prompts[promptName]);
             } else {
                 loadPrompt(promptName);
             }
             
-            // Check if undo is available for this prompt
             checkUndoAvailability();
         }
         
@@ -704,6 +899,142 @@
                 showNotification('Failed to undo changes', 'error');
             }
         }
+
+        function createSmartDiff(oldText, newText, fileName) {
+            const oldLines = oldText.split('\n');
+            const newLines = newText.split('\n');
+            
+            // Use a simple LCS algorithm to find actual changes
+            const changes = findChanges(oldLines, newLines);
+            
+            if (changes.length === 0) {
+                return '<div class="no-changes">No changes detected</div>';
+            }
+            
+            let diffHtml = `<div class="diff-file">
+                <div class="diff-file-header">${fileName} (${changes.length} change${changes.length !== 1 ? 's' : ''})</div>
+                <div class="diff-content">`;
+            
+            // Group nearby changes and show with context
+            const contextLines = 2;
+            let lastEndLine = -1;
+            
+            changes.forEach((change, index) => {
+                const startContext = Math.max(0, change.startLine - contextLines);
+                const endContext = Math.min(oldLines.length - 1, change.endLine + contextLines);
+                
+                // Add separator if there's a gap
+                if (startContext > lastEndLine + 1) {
+                    diffHtml += '<div class="diff-separator">...</div>';
+                }
+                
+                // Show context before
+                for (let i = startContext; i < change.startLine; i++) {
+                    if (i > lastEndLine) {
+                        diffHtml += `<div class="diff-line diff-line-context">${escapeHtml(oldLines[i] || '')}</div>`;
+                    }
+                }
+                
+                // Show the actual change
+                if (change.type === 'remove' || change.type === 'modify') {
+                    for (let i = change.startLine; i <= change.endLine; i++) {
+                        diffHtml += `<div class="diff-line diff-line-removed">- ${escapeHtml(oldLines[i] || '')}</div>`;
+                    }
+                }
+                
+                if (change.type === 'add' || change.type === 'modify') {
+                    for (let i = change.newStartLine; i <= change.newEndLine; i++) {
+                        diffHtml += `<div class="diff-line diff-line-added">+ ${escapeHtml(newLines[i] || '')}</div>`;
+                    }
+                }
+                
+                // Show context after
+                for (let i = Math.max(change.endLine + 1, lastEndLine + 1); i <= endContext; i++) {
+                    diffHtml += `<div class="diff-line diff-line-context">${escapeHtml(oldLines[i] || '')}</div>`;
+                }
+                
+                lastEndLine = endContext;
+            });
+            
+            diffHtml += '</div></div>';
+            return diffHtml;
+        }
+
+        // Simple change detection algorithm
+        function findChanges(oldLines, newLines) {
+            const changes = [];
+            let i = 0, j = 0;
+            
+            while (i < oldLines.length || j < newLines.length) {
+                // Find matching lines
+                if (i < oldLines.length && j < newLines.length && oldLines[i] === newLines[j]) {
+                    i++;
+                    j++;
+                    continue;
+                }
+                
+                // Find the extent of the change
+                let oldStart = i, newStart = j;
+                let oldEnd = i, newEnd = j;
+                
+                // Look ahead to find where lines match again
+                let foundMatch = false;
+                for (let lookAhead = 1; lookAhead <= 10 && !foundMatch; lookAhead++) {
+                    // Try advancing old lines
+                    if (i + lookAhead < oldLines.length && j < newLines.length) {
+                        if (oldLines[i + lookAhead] === newLines[j]) {
+                            oldEnd = i + lookAhead - 1;
+                            newEnd = j - 1;
+                            foundMatch = true;
+                        }
+                    }
+                    // Try advancing new lines  
+                    if (i < oldLines.length && j + lookAhead < newLines.length) {
+                        if (oldLines[i] === newLines[j + lookAhead]) {
+                            oldEnd = i - 1;
+                            newEnd = j + lookAhead - 1;
+                            foundMatch = true;
+                        }
+                    }
+                    // Try advancing both
+                    if (i + lookAhead < oldLines.length && j + lookAhead < newLines.length) {
+                        if (oldLines[i + lookAhead] === newLines[j + lookAhead]) {
+                            oldEnd = i + lookAhead - 1;
+                            newEnd = j + lookAhead - 1;
+                            foundMatch = true;
+                        }
+                    }
+                }
+                
+                if (!foundMatch) {
+                    oldEnd = oldLines.length - 1;
+                    newEnd = newLines.length - 1;
+                }
+                
+                // Determine change type
+                let changeType;
+                if (oldStart > oldEnd && newStart <= newEnd) {
+                    changeType = 'add';
+                } else if (oldStart <= oldEnd && newStart > newEnd) {
+                    changeType = 'remove';  
+                } else {
+                    changeType = 'modify';
+                }
+                
+                changes.push({
+                    type: changeType,
+                    startLine: oldStart,
+                    endLine: Math.max(oldEnd, oldStart),
+                    newStartLine: newStart,  
+                    newEndLine: Math.max(newEnd, newStart)
+                });
+                
+                i = Math.max(oldEnd + 1, oldStart + 1);
+                j = Math.max(newEnd + 1, newStart + 1);
+            }
+            
+            return changes;
+        }
         
         // Confirmation dialog
         function showConfirmation(title, message, action) {
@@ -725,18 +1056,254 @@
             }
         }
         
-        // Chat functionality
+        // Loading indicator functions
+        function showChatLoadingIndicator() {
+            hideChatLoadingIndicator();
+            
+            const messagesContainer = document.getElementById('chatMessages');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading-indicator';
+            loadingDiv.id = 'chat-loading-indicator';
+            loadingDiv.innerHTML = `
+                <div class="loading-bubble">
+                    <span class="loading-text">Analyzing and preparing changes</span>
+                    <div class="typing-dots">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                </div>
+            `;
+            
+            messagesContainer.appendChild(loadingDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function hideChatLoadingIndicator() {
+            const loadingIndicator = document.getElementById('chat-loading-indicator');
+            if (loadingIndicator) {
+                loadingIndicator.remove();
+            }
+        }
+        
+        // Simple diff function
+        function createDiff(oldText, newText, fileName) {
+            const oldLines = oldText.split('\n');
+            const newLines = newText.split('\n');
+            const maxLines = Math.max(oldLines.length, newLines.length);
+            
+            let diffHtml = `<div class="diff-file">
+                <div class="diff-file-header">${fileName}</div>
+                <div class="diff-content">`;
+            
+            let changesFound = false;
+            for (let i = 0; i < maxLines; i++) {
+                const oldLine = oldLines[i] || '';
+                const newLine = newLines[i] || '';
+                
+                if (oldLine !== newLine) {
+                    changesFound = true;
+                    if (oldLine) {
+                        diffHtml += `<div class="diff-line diff-line-removed">- ${escapeHtml(oldLine)}</div>`;
+                    }
+                    if (newLine) {
+                        diffHtml += `<div class="diff-line diff-line-added">+ ${escapeHtml(newLine)}</div>`;
+                    }
+                } else if (oldLine) {
+                    // Show some context around changes
+                    diffHtml += `<div class="diff-line diff-line-context">  ${escapeHtml(oldLine)}</div>`;
+                }
+            }
+            
+            diffHtml += '</div></div>';
+            
+            return changesFound ? diffHtml : '';
+        }
+        
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+        
+        // Add change preview message
+        function addChangePreview(changes) {
+        const messagesContainer = document.getElementById('chatMessages');
+        const messageId = 'change-preview-' + Date.now();
+
+        const changedFiles = Object.keys(changes.modifiedPrompts || {});
+        const fileTagsHtml = changedFiles.map(file => `<span class="file-tag">${file}</span>`).join('');
+
+        let diffHtml = '';
+        let addedLines = 0, removedLines = 0, modifiedSections = 0;
+
+        if (changes.modifiedPrompts) {
+            // show diffs in the same order as the chips
+            for (const fileName of changedFiles) {
+            const newContent = changes.modifiedPrompts[fileName] || '';
+            const oldContent = prompts[fileName] || '';
+
+            // stats
+            const fileChanges = findChanges(oldContent.split('\n'), newContent.split('\n'));
+            fileChanges.forEach(change => {
+                if (change.type === 'add') addedLines += (change.newEndLine - change.newStartLine + 1);
+                else if (change.type === 'remove') removedLines += (change.endLine - change.startLine + 1);
+                else if (change.type === 'modify') {
+                modifiedSections++;
+                addedLines += (change.newEndLine - change.newStartLine + 1);
+                removedLines += (change.endLine - change.startLine + 1);
+                }
+            });
+
+            // **actual diff HTML**
+            const fileDiff = createSmartDiff(oldContent, newContent, fileName);
+            if (fileDiff && fileDiff.trim()) diffHtml += fileDiff;
+            }
+        }
+
+        const changeStats = `
+            <div class="change-stats">
+            <span class="stat-item added">+${addedLines} lines</span>
+            <span class="stat-item removed">-${removedLines} lines</span>
+            <span class="stat-item modified">${modifiedSections} sections modified</span>
+            </div>
+        `;
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message assistant';
+        messageDiv.id = messageId;
+        messageDiv.innerHTML = `
+            <div class="change-preview">
+            <div class="change-preview-header">
+                <svg class="change-preview-icon" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                </svg>
+                <span class="change-preview-title">Proposed Changes</span>
+            </div>
+            <div class="change-preview-content">
+                <div class="change-summary">
+                <h4>Summary</h4>
+                <p>${changes.response}</p>
+                </div>
+
+                <div class="changed-files">
+                <h4>Files to be modified:</h4>
+                <div class="file-list">${fileTagsHtml}</div>
+                </div>
+
+                ${diffHtml ? `<div class="diff-container">${diffHtml}</div>` : ''}
+
+                ${changeStats}
+
+                <div class="change-actions">
+                <button class="btn btn-primary" onclick="approveChanges('${messageId}')">✓ Apply Changes</button>
+                <button class="btn btn-danger" onclick="rejectChanges('${messageId}')">✗ Reject Changes</button>
+                </div>
+            </div>
+            </div>`;
+        messagesContainer.appendChild(messageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // Approve pending changes
+        async function approveChanges(messageId) {
+            if (!pendingChanges) {
+                showNotification('No pending changes to apply', 'error');
+                return;
+            }
+            
+            try {
+                // Apply changes by saving each modified prompt
+                const changePromises = Object.entries(pendingChanges.modifiedPrompts).map(async ([fileName, content]) => {
+                    const response = await fetch(`/api/prompts/${fileName}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Failed to save ${fileName}`);
+                    }
+                    
+                    // Update local prompts cache
+                    prompts[fileName] = content;
+                    
+                    // Update editor if this is the current prompt
+                    if (fileName === currentPrompt) {
+                        editor.setValue(content);
+                    }
+                });
+                
+                await Promise.all(changePromises);
+                
+                // Update the message to show success
+                const messageEl = document.getElementById(messageId);
+                if (messageEl) {
+                    const actionsEl = messageEl.querySelector('.change-actions');
+                    if (actionsEl) {
+                        actionsEl.innerHTML = `
+                            <div style="text-align: center; color: #28a745; font-weight: 600; padding: 1rem;">
+                                ✓ Changes applied successfully!
+                            </div>
+                        `;
+                    }
+                }
+                
+                showNotification(`Applied changes to ${Object.keys(pendingChanges.modifiedPrompts).length} prompt(s)`);
+                checkUndoAvailability();
+                
+                // Clear pending changes
+                pendingChanges = null;
+                
+            } catch (error) {
+                showNotification('Failed to apply changes: ' + error.message, 'error');
+            }
+        }
+        
+        // Reject pending changes
+        function rejectChanges(messageId) {
+            // Update the message to show rejection
+            const messageEl = document.getElementById(messageId);
+            if (messageEl) {
+                const actionsEl = messageEl.querySelector('.change-actions');
+                if (actionsEl) {
+                    actionsEl.innerHTML = `
+                        <div style="text-align: center; color: #dc3545; font-weight: 600; padding: 1rem;">
+                            ✗ Changes rejected
+                        </div>
+                    `;
+                }
+            }
+            
+            // Clear pending changes
+            pendingChanges = null;
+            
+            showNotification('Changes rejected', 'warning');
+        }
+        
+        // Chat functionality - updated to show previews
         async function sendMessage() {
             const input = document.getElementById('chatInput');
+            const sendBtn = document.getElementById('sendBtn');
             const message = input.value.trim();
             
             if (!message) return;
             
+            // Disable input and button during processing
+            input.disabled = true;
+            sendBtn.disabled = true;
             input.value = '';
+            
+            // Add user message
             addMessage('user', message);
             
-            // Show loading
-            const loadingId = addMessage('assistant', '<div class="loading"><div class="spinner"></div> Analyzing and updating prompts...</div>');
+            // Show loading indicator
+            showChatLoadingIndicator();
             
             try {
                 const response = await fetch('/api/ai-prompt-modifier', {
@@ -744,35 +1311,34 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
                         message,
-                        currentPrompts: prompts 
+                        currentPrompts: prompts,
+                        previewMode: true // Request preview instead of direct changes
                     })
                 });
                 
                 const data = await response.json();
                 
-                // Remove loading message
-                document.getElementById(loadingId).remove();
+                // Hide loading indicator
+                hideChatLoadingIndicator();
                 
-                // Add AI response
-                addMessage('assistant', data.response);
-                
-                // Update prompts if any were modified
-                if (data.modifiedPrompts) {
-                    Object.assign(prompts, data.modifiedPrompts);
-                    
-                    // Update editor if current prompt was modified
-                    if (data.modifiedPrompts[currentPrompt]) {
-                        editor.setValue(data.modifiedPrompts[currentPrompt]);
-                    }
-                    
-                    showNotification(`Updated ${Object.keys(data.modifiedPrompts).length} prompt(s)`);
-                    checkUndoAvailability();
+                // If there are changes to preview, show the preview
+                if (data.modifiedPrompts && Object.keys(data.modifiedPrompts).length > 0) {
+                    pendingChanges = data; // Store for later approval
+                    addChangePreview(data);
+                } else {
+                    // No changes needed, just add the response
+                    addMessage('assistant', data.response);
                 }
                 
             } catch (error) {
-                document.getElementById(loadingId).remove();
+                hideChatLoadingIndicator();
                 addMessage('assistant', 'Sorry, I encountered an error while processing your request. Please try again.');
                 showNotification('Failed to process AI request', 'error');
+            } finally {
+                // Re-enable input and button
+                input.disabled = false;
+                sendBtn.disabled = false;
+                input.focus();
             }
         }
         

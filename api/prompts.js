@@ -86,6 +86,53 @@ async function getLatestBackupContent(filename) {
   };
 }
 
+// Batch update multiple prompts
+async function batchUpdatePrompts(updates) {
+  const results = [];
+  const errors = [];
+  
+  for (const [filename, content] of Object.entries(updates)) {
+    try {
+      if (!PROMPT_FILES.includes(filename)) {
+        errors.push({ filename, error: 'Invalid prompt file' });
+        continue;
+      }
+      
+      if (typeof content !== 'string') {
+        errors.push({ filename, error: 'Content must be a string' });
+        continue;
+      }
+      
+      const filePath = path.join(PROMPTS_DIR, filename);
+      
+      // Create backup of existing content
+      try {
+        const existingContent = await fs.readFile(filePath, 'utf8');
+        await createBackup(filename, existingContent);
+      } catch {
+        // File doesn't exist yet, no backup needed
+      }
+      
+      // Write new content
+      await fs.writeFile(filePath, content, 'utf8');
+      
+      results.push({
+        filename,
+        success: true,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      errors.push({
+        filename,
+        error: error.message
+      });
+    }
+  }
+  
+  return { results, errors };
+}
+
 export default async function handler(req, res) {
   // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -165,35 +212,64 @@ export default async function handler(req, res) {
         break;
 
       case 'PUT':
-        // Update specific prompt
-        if (!filename || !PROMPT_FILES.includes(filename)) {
-          return res.status(404).json({ error: 'Invalid prompt file' });
+        // Update specific prompt or batch update
+        if (action === 'batch') {
+          // Batch update multiple prompts
+          const { updates } = req.body;
+          
+          if (!updates || typeof updates !== 'object') {
+            return res.status(400).json({ error: 'Updates object is required' });
+          }
+          
+          const result = await batchUpdatePrompts(updates);
+          
+          if (result.errors.length > 0) {
+            res.status(207).json({ // 207 Multi-Status
+              message: 'Batch update completed with some errors',
+              results: result.results,
+              errors: result.errors
+            });
+          } else {
+            res.json({
+              success: true,
+              message: `Successfully updated ${result.results.length} prompt(s)`,
+              results: result.results
+            });
+          }
+          
+        } else if (filename) {
+          // Update specific prompt (existing functionality)
+          if (!PROMPT_FILES.includes(filename)) {
+            return res.status(404).json({ error: 'Invalid prompt file' });
+          }
+          
+          const { content } = req.body;
+          if (typeof content !== 'string') {
+            return res.status(400).json({ error: 'Content must be a string' });
+          }
+          
+          const filePath = path.join(PROMPTS_DIR, filename);
+          
+          // Create backup of existing content
+          try {
+            const existingContent = await fs.readFile(filePath, 'utf8');
+            await createBackup(filename, existingContent);
+          } catch {
+            // File doesn't exist yet, no backup needed
+          }
+          
+          // Write new content
+          await fs.writeFile(filePath, content, 'utf8');
+          
+          res.json({ 
+            success: true, 
+            message: 'Prompt updated successfully',
+            filename,
+            timestamp: new Date().toISOString()
+          });
+        } else {
+          res.status(400).json({ error: 'Filename is required for single updates' });
         }
-        
-        const { content } = req.body;
-        if (typeof content !== 'string') {
-          return res.status(400).json({ error: 'Content must be a string' });
-        }
-        
-        const filePath = path.join(PROMPTS_DIR, filename);
-        
-        // Create backup of existing content
-        try {
-          const existingContent = await fs.readFile(filePath, 'utf8');
-          await createBackup(filename, existingContent);
-        } catch {
-          // File doesn't exist yet, no backup needed
-        }
-        
-        // Write new content
-        await fs.writeFile(filePath, content, 'utf8');
-        
-        res.json({ 
-          success: true, 
-          message: 'Prompt updated successfully',
-          filename,
-          timestamp: new Date().toISOString()
-        });
         break;
 
       case 'POST':
@@ -271,6 +347,67 @@ export default async function handler(req, res) {
               details: error.message 
             });
           }
+        } else if (action === 'batch-reset') {
+          // Reset multiple prompts to defaults
+          const { filenames } = req.body;
+          
+          if (!filenames || !Array.isArray(filenames)) {
+            return res.status(400).json({ error: 'Filenames array is required' });
+          }
+          
+          const results = [];
+          const errors = [];
+          
+          for (const fname of filenames) {
+            try {
+              if (!PROMPT_FILES.includes(fname)) {
+                errors.push({ filename: fname, error: 'Invalid prompt file' });
+                continue;
+              }
+              
+              const filePath = path.join(PROMPTS_DIR, fname);
+              const defaultPath = path.join(DEFAULTS_DIR, fname);
+              
+              // Backup current version if it exists
+              try {
+                const currentContent = await fs.readFile(filePath, 'utf8');
+                await createBackup(fname, currentContent);
+              } catch {
+                // No current file to backup
+              }
+              
+              // Copy from defaults
+              const defaultContent = await fs.readFile(defaultPath, 'utf8');
+              await fs.writeFile(filePath, defaultContent, 'utf8');
+              
+              results.push({
+                filename: fname,
+                success: true,
+                timestamp: new Date().toISOString()
+              });
+              
+            } catch (error) {
+              errors.push({
+                filename: fname,
+                error: error.message
+              });
+            }
+          }
+          
+          if (errors.length > 0) {
+            res.status(207).json({
+              message: 'Batch reset completed with some errors',
+              results,
+              errors
+            });
+          } else {
+            res.json({
+              success: true,
+              message: `Successfully reset ${results.length} prompt(s) to defaults`,
+              results
+            });
+          }
+          
         } else {
           res.status(400).json({ error: 'Invalid action' });
         }
