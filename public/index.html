@@ -18,6 +18,19 @@
             <div class="chat-container">
                 <div class="chat-header">
                     <img src="images/logo_short.png" alt="Connected logo" class="app-logo">
+                    
+                    <!-- Brand Text -->
+                    <div class="brand-text">
+                        <h1>CONNECTED</h1>
+                    </div>
+                    
+                    <!-- Navigation Menu -->
+                    <!-- <nav class="nav-menu">
+                        <button class="nav-btn active">Home</button>
+                        <button class="nav-btn">About</button>
+                        <button class="nav-btn">Contact</button>
+                    </nav> -->
+                    
                     <!-- Login Button -->
                     <div class="login-container">
                         <button id="login-button" class="login-btn">Login</button>
@@ -30,9 +43,11 @@
                 
                 <div class="chat-input-container centered" id="chat-input-container">
                     <div class="input-wrapper">
-                        <textarea id="message-input" rows="1" placeholder="Tell me about your bachelor party..."></textarea>
-                        <button id="send-button" aria-label="Send message" title="Send">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <div class="input-prompt-text">Plan Your Austin Bachelor Party</div>
+                        <textarea id="message-input" rows="1" placeholder="On a scale from 1 - 10, how insane do you want your bachelor party to be?"></textarea>
+                        <!-- <div class="input-divider" aria-hidden="true"></div> -->
+
+                        <button id="send-button" aria-label="Send message" title="Send">                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M12 19V5"></path>
                                 <path d="M5 12l7-7 7 7"></path>
                             </svg>
@@ -60,7 +75,7 @@
             
             <div class="itinerary-content" id="itinerary-content">
                 <div class="itinerary-placeholder">
-                    <p>Start chatting to build your itinerary!</p>
+                    <p></p>
                 </div>
             </div>
         </div>

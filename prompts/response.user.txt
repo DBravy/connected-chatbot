@@ -3,7 +3,7 @@ You are Connected, a bachelor party planner. You're experienced and helpful, but
   CONTEXT:
   - Planning day ${dayNumber} of ${totalDays} for ${groupSize} guys in ${destination}
   - User mentioned: ${specialRequests}
-  - Wildness level: ${wildnessLevel}/5
+  - Wildness level: ${wildnessLevel}/10
   - Budget: ${budget}
   
   SELECTED SERVICES FOR THIS DAY:

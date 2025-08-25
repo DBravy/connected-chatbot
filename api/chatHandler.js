@@ -252,6 +252,7 @@ export class ChatHandler {
       facts: conversation.facts,
       availableServices: conversation.availableServices,
       selectedServices: conversation.selectedServices,
+      expectingFirstWildnessResponse: conversation.expectingFirstWildnessResponse,
       dayByDayPlanning: {
         ...conversation.dayByDayPlanning,
         usedServices: Array.from(conversation.dayByDayPlanning?.usedServices || [])
@@ -268,6 +269,7 @@ export class ChatHandler {
     conversation.facts = snap.facts ?? conversation.facts;
     conversation.availableServices = snap.availableServices ?? [];
     conversation.selectedServices = snap.selectedServices ?? {};
+    conversation.expectingFirstWildnessResponse = snap.expectingFirstWildnessResponse ?? false;
 
     // Merge then rehydrate Set <- Array/object
     conversation.dayByDayPlanning = {
@@ -563,12 +565,113 @@ export class ChatHandler {
   getConversation(conversationId) {
     if (!this.conversations.has(conversationId)) {
       const newConv = createNewConversation();
+      // Don't set any default values - let the user drive the conversation
       this.conversations.set(conversationId, newConv);
       return newConv;
     }
     return this.conversations.get(conversationId);
   }
 
+  // Handle the first user response as wildness level (uses GPT-4o for response)
+  async handleFirstWildnessResponse(conversation, userMessage) {
+    console.log('Handling first wildness response:', userMessage);
+    
+    // Extract any number from the user message (including negative numbers)
+    const numberMatch = userMessage.match(/-?\d+/);
+    if (!numberMatch) {
+      // If no number found, ask again
+      return {
+        handled: true,
+        response: "I need a number from 1-10 to understand how wild you want this party! How insane are we talking?",
+        assumptions: [`User did not provide a numeric wildness level`]
+      };
+    }
+    
+    let wildnessValue = parseInt(numberMatch[0], 10);
+    let assumptions = [];
+    let originalValue = wildnessValue;
+    
+    // Handle extreme values and clamping
+    if (wildnessValue > 50) {
+      assumptions.push(`User provided extreme wildness value: ${wildnessValue}, interpreting as maximum wildness (10)`);
+      wildnessValue = 10;
+    } else if (wildnessValue > 10) {
+      assumptions.push(`User provided wildness value above 10: ${wildnessValue}, clamping to 10`);
+      wildnessValue = 10;
+    } else if (wildnessValue < 1) {
+      // This now handles negative numbers properly
+      assumptions.push(`User provided wildness value below 1: ${wildnessValue}, clamping to 1`);
+      wildnessValue = 1;
+    } else {
+      // Normal 1-10 range
+      assumptions.push(`User provided wildness level: ${wildnessValue}`);
+    }
+    
+    // Set the wildness level fact
+    this.setFact(conversation, 'wildnessLevel', wildnessValue, `first response: "${userMessage}"`);
+    
+    // Clear the flag so future responses go through normal processing
+    conversation.expectingFirstWildnessResponse = false;
+    
+    // Generate response using template and GPT-4o
+    try {
+      // Load and render the wildness template
+      const wildnessTemplate = await this.loadTemplate("wildness.user.txt");
+      const wildnessPrompt = this.renderTemplate(wildnessTemplate, {
+        userMessage,
+        originalValue,
+        wildnessValue,
+        wasValueClamped: originalValue !== wildnessValue,
+        clampingReason: originalValue > 50 ? 'extreme' : (originalValue > 10 ? 'above_range' : (originalValue < 1 ? 'below_range' : 'none')),
+        wasNegative: originalValue < 0  // Add this context for template
+      });
+
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { role: "system", content: "You are a casual, enthusiastic bachelor party planning assistant. Match your energy to the user's wildness level." },
+          { role: "user", content: wildnessPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 150
+      });
+
+      const responseText = response.choices[0].message.content;
+      
+      return {
+        handled: true,
+        response: responseText,
+        assumptions
+      };
+      
+    } catch (error) {
+      console.error('Error generating wildness response:', error);
+      
+      // Enhanced fallback response for negative numbers
+      let fallbackResponse = "";
+      if (originalValue < 0) {
+        fallbackResponse = `Haha, ${originalValue}? I get it, you want to keep things super chill! Let's call that a 1 - we can still have an amazing time without going crazy. `;
+      } else if (wildnessValue >= 8) {
+        fallbackResponse = wildnessValue === 10 ? "Fuck yeah! A 10! Let's get absolutely wild! " : "Hell yeah! That's what I'm talking about! ";
+      } else if (wildnessValue >= 6) {
+        fallbackResponse = "Nice, solid choice! Perfect level of chaos! ";
+      } else {
+        fallbackResponse = "Cool, keeping it classy but still fun! ";
+      }
+      
+      if (originalValue > 50) {
+        fallbackResponse = `${originalValue}?! I can tell you want maximum chaos! That's definitely a 10 on my scale. `;
+      }
+      
+      fallbackResponse += "What city are you planning to have this bachelor party?";
+      
+      return {
+        handled: true,
+        response: fallbackResponse,
+        assumptions
+      };
+    }
+  }
   // Main message handler - LLM-first approach
   async handleMessage(conversationId, userMessage, incomingSnapshot = null) {
     console.log(`\n=== Processing Message ===`);
@@ -608,6 +711,28 @@ export class ChatHandler {
     };
   }
   // <<< END DEV SHORTCUTS >>>
+
+    // >>> HARDCODED FIRST RESPONSE HANDLING <<<
+    if (conversation.expectingFirstWildnessResponse) {
+      const result = await this.handleFirstWildnessResponse(conversation, userMessage);
+      if (result.handled) {
+        // Record messages exactly like normal so UI stays in sync
+        conversation.messages.push(
+          { role: 'user', content: userMessage, timestamp: new Date().toISOString() },
+          { role: 'assistant', content: result.response, timestamp: new Date().toISOString() }
+        );
+        const snapshot = this.exportSnapshot(conversation);
+        return {
+          response: result.response,
+          phase: conversation.phase,
+          facts: conversation.facts,
+          assumptions: result.assumptions || [],
+          itinerary: this.buildSidebarItinerary(conversation),
+          snapshot
+        };
+      }
+    }
+    // <<< END HARDCODED FIRST RESPONSE HANDLING >>>
     
     // Handle different phases
     let finalResponse;
@@ -807,6 +932,8 @@ async reduceState(conversation, userMessage) {
   };
 }
 
+
+
   // Update conversation facts based on LLM output
   updateConversationFacts(conversation, factUpdates) {
     Object.entries(factUpdates).forEach(([key, update]) => {
@@ -847,7 +974,7 @@ transformConversationFacts(facts) {
     startDate: facts.startDate?.value,
     endDate: facts.endDate?.value,
     duration: this.calculateDuration(facts.startDate?.value, facts.endDate?.value),
-    wildnessLevel: facts.wildnessLevel?.value || 3,
+    wildnessLevel: facts.wildnessLevel?.value || 5,
     budget: facts.budget?.value,
     budgetType: facts.budgetType?.value,
     interestedActivities: facts.interestedActivities?.value || [],
@@ -877,7 +1004,7 @@ transformConversationFacts(facts) {
         startDate: conversationData.facts.startDate?.value,
         endDate: conversationData.facts.endDate?.value,
         duration: this.calculateDuration(conversationData.facts.startDate?.value, conversationData.facts.endDate?.value),
-        wildnessLevel: conversationData.facts.wildnessLevel?.value || 3,
+        wildnessLevel: conversationData.facts.wildnessLevel?.value || 5,
         budget: conversationData.facts.budget?.value,
         interestedActivities: conversationData.facts.interestedActivities?.value || [],
         specialRequests: conversationData.facts.interestedActivities?.value?.join(', ') || '',
@@ -892,7 +1019,7 @@ transformConversationFacts(facts) {
         startDate: conversationData.startDate,
         endDate: conversationData.endDate,
         duration: conversationData.duration || this.calculateDuration(conversationData.startDate, conversationData.endDate),
-        wildnessLevel: conversationData.wildnessLevel || 3,
+        wildnessLevel: conversationData.wildnessLevel || 5,
         budget: conversationData.budget,
         interestedActivities: conversationData.interestedActivities || [],
         specialRequests: conversationData.specialRequests || conversationData.interestedActivities?.join(', ') || '',
@@ -1396,7 +1523,7 @@ transformConversationFacts(facts) {
       if (services.restaurants.length > 0) {
         selected.restaurant = this.pickBestService(services.restaurants, groupSize, ['group', 'welcome']);
       }
-      if (isWeekend && services.nightclubs.length > 0 && wildnessLevel >= 4) {
+      if (isWeekend && services.nightclubs.length > 0 && wildnessLevel >= 7) {
         selected.nightlife = this.pickBestService(services.nightclubs, groupSize, ['vip', 'bottle']);
       } else if (services.bars.length > 0) {
         selected.nightlife = this.pickBestService(services.bars, groupSize, ['group', 'fun']);
@@ -1414,7 +1541,7 @@ transformConversationFacts(facts) {
       if (services.restaurants.length > 0) {
         selected.restaurant = this.pickBestService(services.restaurants, groupSize, ['dinner', 'party']);
       }
-      if (services.nightclubs.length > 0 && wildnessLevel >= 4) {
+      if (services.nightclubs.length > 0 && wildnessLevel >= 7) {
         selected.nightlife = this.pickBestService(services.nightclubs, groupSize, ['vip', 'amazing']);
       }
     }
@@ -2239,7 +2366,7 @@ transformConversationFacts(facts) {
   - Group Size: ${facts.groupSize?.value || 'Unknown'}
   - Dates: ${facts.startDate?.value || 'Unknown'} to ${facts.endDate?.value || 'Unknown'}
   - Duration: ${this.calculateDuration(facts.startDate?.value, facts.endDate?.value)} days
-  - Wildness Level: ${facts.wildnessLevel?.value || 3}/5
+  - Wildness Level: ${facts.wildnessLevel?.value || 5}/10
   - Budget: ${facts.budget?.value || 'Not specified'}
   - Interested Activities: ${facts.interestedActivities?.value?.join(', ') || 'None specified'}
   - Age Range: ${facts.ageRange?.value || 'Not specified'}
@@ -2356,7 +2483,7 @@ transformConversationFacts(facts) {
   User context:
   - Destination: ${userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown'}
   - Group size: ${userPreferences.groupSize || userPreferences.facts?.groupSize?.value || '?'}
-  - Wildness level: ${userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 3}/5
+  - Wildness level: ${userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 5}/10
   - Known requests: ${userPreferences.specialRequests || userPreferences.interestedActivities?.join(', ') || '—'}
   
   SUBSTITUTION DETECTION:
@@ -2762,7 +2889,7 @@ selectBestServices(availableServices, wildnessLevel, groupSize) {
   }
 
   // Prefer strip club at higher wildness, fall back to nightclub, then bar
-  if ((wildnessLevel >= 4 && buckets.stripclubs.length) || (!buckets.nightclubs.length && buckets.stripclubs.length)) {
+  if ((wildnessLevel >= 7 && buckets.stripclubs.length) || (!buckets.nightclubs.length && buckets.stripclubs.length)) {
     selected.nightlife = pickBest(buckets.stripclubs, ['vip', 'bottle', 'table', 'access']);
   } else if (buckets.nightclubs.length) {
     selected.nightlife = pickBest(buckets.nightclubs, ['vip', 'bottle', 'table', 'entry']);
@@ -3488,7 +3615,7 @@ async searchAvailableServices(destination, groupSize, preferences = {}) {
       console.warn("options.user.txt load/render failed; using inline fallback:", e?.message);
       prompt =
   `You are Connected, a bachelor party planner. The user asked for options for category: ${intent?.category}.
-  Destination: ${facts.destination}, group size: ${facts.groupSize}, wildness: ${facts.wildnessLevel}/5.
+  Destination: ${facts.destination}, group size: ${facts.groupSize}, wildness: ${facts.wildnessLevel}/10.
   Options JSON: ${JSON.stringify(payload)}
   
   Write a tight answer:

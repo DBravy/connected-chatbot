@@ -117,7 +117,7 @@ export class AIResponseGenerator {
     // Extract values from userPreferences with proper fallbacks
     const groupSize = userPreferences.groupSize || userPreferences.facts?.groupSize?.value || 8;
     const destination = userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown';
-    const wildnessLevel = userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 3;
+    const wildnessLevel = userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 5;
     const budget = userPreferences.budget || userPreferences.facts?.budget?.value || 'Not specified';
     const specialRequests = userPreferences.specialRequests || 
                            userPreferences.interestedActivities?.join(', ') || 

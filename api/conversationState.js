@@ -24,6 +24,9 @@ export const createNewConversation = (userId = null) => ({
   userId,
   phase: PHASES.GATHERING,
 
+  // NEW: Flag to track that the first user response should always be wildness level
+  expectingFirstWildnessResponse: true,
+
   dayByDayPlanning: {
       currentDay: 0,          // Which day we're currently planning (0-indexed)
       totalDays: 0,           // Total number of days in the trip
@@ -122,7 +125,7 @@ export const createNewConversation = (userId = null) => ({
   messages: [
     { 
       role: 'assistant', 
-      content: "Where are you planning to have your bachelor party?", 
+      content: "On a scale from 1 - 10, how insane do you want your bachelor party to be?", 
       timestamp: new Date().toISOString() 
     }
   ],

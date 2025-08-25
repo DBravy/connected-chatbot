@@ -261,7 +261,7 @@ export class AIServiceSelector {
   USER PREFERENCES:
   - Destination: ${userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown'}
   - Group Size: ${userPreferences.groupSize || userPreferences.facts?.groupSize?.value || 8}
-  - Wildness Level: ${userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 3}/5
+  - Wildness Level: ${userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 5}/10
   - Special Requests: ${userPreferences.specialRequests || userPreferences.facts?.interestedActivities?.value?.join(', ') || userPreferences.interestedActivities?.join(', ') || 'None'}
   
   EDIT DIRECTIVES (apply faithfully, but keep a natural flow):
@@ -370,7 +370,7 @@ export class AIServiceSelector {
     const destination = userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown';
     const groupSize = userPreferences.groupSize || userPreferences.facts?.groupSize?.value || 8;
     const duration = userPreferences.duration || dayInfo.totalDays || 3;
-    const wildnessLevel = userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 3;
+    const wildnessLevel = userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 5;
     const budget = userPreferences.budget || userPreferences.facts?.budget?.value || 'Not specified';
     const specialRequests =
       userPreferences.specialRequests ||
@@ -412,7 +412,7 @@ BACHELOR PARTY PLANNING TASK:
   - Destination: \${destination}
   - Group Size: \${groupSize} people
   - Duration: \${duration} days
-  - Wildness Level: \${wildnessLevel}/5
+  - Wildness Level: \${wildnessLevel}/10
   - Budget: \${budget}
   - Special Requests: \${specialRequests}
   - User Request: "\${userExplicitRequest || 'Standard planning'}"

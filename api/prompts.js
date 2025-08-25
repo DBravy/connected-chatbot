@@ -17,7 +17,8 @@ const PROMPT_FILES = [
   'general.user.txt', 
   'options.user.txt',
   'selector.system.txt',
-  'response.user.txt'
+  'response.user.txt',
+  'wildness.user.txt'
 ];
 
 // Ensure directories exist
@@ -28,31 +29,28 @@ async function ensureDirectories() {
 }
 
 // Create backup of current prompt with optional commit message
+// api/prompts.js
 async function createBackup(filename, content, commitMessage = null) {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupFilename = `${filename}.${timestamp}.bak`;
+  const now = new Date();
+  const iso = now.toISOString();                        // one source of truth
+  const stamp = iso.replace(/[:.]/g, '-');              // safe for filenames
+  const backupFilename = `${filename}.${stamp}.bak`;
   const backupPath = path.join(BACKUPS_DIR, backupFilename);
-  
-  // Create backup metadata
+
   const metadata = {
     filename,
-    timestamp: new Date().toISOString(),
+    timestamp: iso,                                     // exactly matches backupFilename’s instant
     backupFilename,
     commitMessage: commitMessage || null,
     contentLength: content.length,
-    contentHash: generateSimpleHash(content)
+    contentHash: generateSimpleHash(content),
   };
-  
-  // Save content
+
   await fs.writeFile(backupPath, content, 'utf8');
-  
-  // Save metadata
   const metadataPath = path.join(BACKUPS_DIR, `${backupFilename}.meta`);
   await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8');
-  
-  // Note: Removed the 10-backup limit to keep full version history
-  // Users can manually clean up old versions if needed
 }
+
 
 // Generate a simple hash for content comparison
 function generateSimpleHash(content) {
@@ -140,10 +138,24 @@ async function getVersionContent(filename, versionTimestamp) {
     const filePath = path.join(PROMPTS_DIR, filename);
     return await fs.readFile(filePath, 'utf8');
   }
-  
-  const backupFilename = `${filename}.${versionTimestamp.replace(/:/g, '-').replace(/\./g, '-').replace(/Z$/, 'Z')}.bak`;
-  const backupPath = path.join(BACKUPS_DIR, backupFilename);
-  return await fs.readFile(backupPath, 'utf8');
+
+  const stamp = versionTimestamp.replace(/[:.]/g, '-').replace(/Z$/, 'Z');
+  const backupPath = path.join(BACKUPS_DIR, `${filename}.${stamp}.bak`);
+  try {
+    return await fs.readFile(backupPath, 'utf8');
+  } catch (e) {
+    // Fallback: look up by metadata timestamp
+    const entries = await fs.readdir(BACKUPS_DIR);
+    for (const entry of entries) {
+      if (entry.startsWith(`${filename}.`) && entry.endsWith('.bak.meta')) {
+        const meta = JSON.parse(await fs.readFile(path.join(BACKUPS_DIR, entry), 'utf8'));
+        if (meta.timestamp === versionTimestamp && meta.backupFilename) {
+          return await fs.readFile(path.join(BACKUPS_DIR, meta.backupFilename), 'utf8');
+        }
+      }
+    }
+    throw e;
+  }
 }
 
 // Revert to a specific version

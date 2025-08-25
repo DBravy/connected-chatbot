@@ -6,7 +6,7 @@ You are editing DAY ${dayInfo.dayNumber} of a bachelor party itinerary.
   USER PREFERENCES:
   - Destination: ${userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown'}
   - Group Size: ${userPreferences.groupSize || userPreferences.facts?.groupSize?.value || 8}
-  - Wildness Level: ${userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 3}/5
+  - Wildness Level: ${userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 5}/10
   - Special Requests: ${userPreferences.specialRequests || userPreferences.facts?.interestedActivities?.value?.join(', ') || userPreferences.interestedActivities?.join(', ') || 'None'}
   
   EDIT DIRECTIVES (apply faithfully, but keep a natural flow):

@@ -142,8 +142,51 @@ export default async function handler(req, res) {
   }
 }
 
+// Replace the existing validation logic with this improved version
+function validateTemplateVariables(originalContent, modifiedContent, promptFile) {
+  // Extract variables and get unique sets
+  const originalVariables = [...new Set((originalContent.match(/\$\{[^}]+\}/g) || []))].sort();
+  const modifiedVariables = [...new Set((modifiedContent.match(/\$\{[^}]+\}/g) || []))].sort();
+  
+  // Check if all original variables are still present
+  const missingVariables = originalVariables.filter(v => !modifiedVariables.includes(v));
+  const addedVariables = modifiedVariables.filter(v => !originalVariables.includes(v));
+  
+  if (missingVariables.length > 0) {
+    console.error(`ERROR: Missing template variables in ${promptFile}:`, missingVariables);
+    throw new Error(`Template variables removed from ${promptFile}: ${missingVariables.join(', ')}`);
+  }
+  
+  if (addedVariables.length > 0) {
+    console.warn(`WARNING: New template variables added to ${promptFile}:`, addedVariables);
+    // You might want to allow this or throw an error depending on your needs
+  }
+  
+  // Check for duplicate variables (count occurrences)
+  const originalCount = {};
+  const modifiedCount = {};
+  
+  (originalContent.match(/\$\{[^}]+\}/g) || []).forEach(v => {
+    originalCount[v] = (originalCount[v] || 0) + 1;
+  });
+  
+  (modifiedContent.match(/\$\{[^}]+\}/g) || []).forEach(v => {
+    modifiedCount[v] = (modifiedCount[v] || 0) + 1;
+  });
+  
+  // Log any significant increases in variable usage
+  for (const [variable, newCount] of Object.entries(modifiedCount)) {
+    const originalUsage = originalCount[variable] || 0;
+    if (newCount > originalUsage + 1) { // Allow one extra usage
+      console.warn(`WARNING: Variable ${variable} usage increased significantly in ${promptFile} (was ${originalUsage}, now ${newCount})`);
+    }
+  }
+  
+  return true;
+}
+
+// Update your analyzeAndModifyPrompts function to use this:
 async function analyzeAndModifyPrompts(userMessage, currentPrompts, previewMode = true) {
-  // First, analyze what the user wants to change
   const analysis = await analyzeUserRequest(userMessage, currentPrompts);
   
   if (!analysis.needsChanges) {
@@ -154,7 +197,6 @@ async function analyzeAndModifyPrompts(userMessage, currentPrompts, previewMode 
     };
   }
   
-  // Apply the changes to the relevant prompts with validation
   const modifiedPrompts = {};
   
   for (const change of analysis.changes) {
@@ -168,39 +210,19 @@ async function analyzeAndModifyPrompts(userMessage, currentPrompts, previewMode 
         promptFile
       );
       
-      // Validation: Ensure the modification was actually surgical
-      const originalLines = originalContent.split('\n').length;
-      const modifiedLines = modifiedContent.split('\n').length;
-      const lineDifference = Math.abs(originalLines - modifiedLines);
-      
-      // If more than 10% of lines changed, flag as potentially problematic
-      if (lineDifference > originalLines * 0.1) {
-        console.warn(`Warning: Large structural change detected in ${promptFile}. Original: ${originalLines} lines, Modified: ${modifiedLines} lines`);
-      }
-      
-      // Ensure template variables are preserved
-      const originalVariables = (originalContent.match(/\$\{[^}]+\}/g) || []).sort();
-      const modifiedVariables = (modifiedContent.match(/\$\{[^}]+\}/g) || []).sort();
-      
-      if (JSON.stringify(originalVariables) !== JSON.stringify(modifiedVariables)) {
-        console.error(`ERROR: Template variables changed in ${promptFile}!`);
-        console.error('Original variables:', originalVariables);
-        console.error('Modified variables:', modifiedVariables);
-        throw new Error(`Template variable preservation failed for ${promptFile}`);
-      }
+      // Use improved validation
+      validateTemplateVariables(originalContent, modifiedContent, promptFile);
       
       modifiedPrompts[promptFile] = modifiedContent;
     }
   }
   
-  const result = {
+  return {
     response: analysis.response,
     modifiedPrompts: Object.keys(modifiedPrompts).length > 0 ? modifiedPrompts : null,
     commitMessage: analysis.commitMessage || null,
     previewMode
   };
-  
-  return result;
 }
 
 function tryParseJSON(s) {
@@ -269,7 +291,7 @@ Rules:
         { role: "user", content: prompt }
       ],
       response_format: { type: "json_object" },
-      max_completion_tokens: 6000
+      max_completion_tokens: 4096
     });
 
     const choice = response.choices?.[0];

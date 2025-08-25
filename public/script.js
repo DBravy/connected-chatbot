@@ -98,6 +98,8 @@ class ChatInterface {
         if (this.toggleButton && this.itinerarySidebar) {
             this.toggleButton.textContent = this.itinerarySidebar.classList.contains('collapsed') ? '☰' : '×';
         }
+        // Auto-focus the message input when page loads
+        this.messageInput.focus();
         // Don't show welcome message initially - will show after first user message
     }
 
@@ -190,11 +192,29 @@ class ChatInterface {
 
         // Show welcome message if this is the first user message
         if (isFirstMessage) {
-            this.addMessage("Welcome to Connected. Where are you planning to have your bachelor party?", 'bot');
+            this.addMessage("On a scale from 1 - 10, how insane do you want your bachelor party to be?", 'bot');
         }
 
         // Add user message to chat
         this.addMessage(message, 'user');
+        
+        // Change placeholder text after first message
+        if (isFirstMessage) {
+            this.messageInput.placeholder = "Tell me about your bachelor party...";
+            
+            // Hide the prompt text after first message
+            const promptText = document.querySelector('.input-prompt-text');
+            if (promptText) {
+                promptText.classList.add('hidden');
+                // Remove element after animation completes
+                setTimeout(() => {
+                    if (promptText && promptText.parentNode) {
+                        promptText.remove();
+                    }
+                }, 300); // Match the CSS transition duration
+            }
+        }
+        
         // On first user message, animate input from center to bottom
         if (!this.hasAnimatedInputToBottom && this.inputContainer) {
             this.hasAnimatedInputToBottom = true;

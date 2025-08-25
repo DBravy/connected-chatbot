@@ -926,6 +926,18 @@
                         </button>
                     </div>
                 </li>
+                <li class="prompt-item" data-prompt="wildness.user.txt">
+                    <div class="prompt-name">Wildness Response</div>
+                    <div class="prompt-description">Handles initial wildness level responses with appropriate enthusiasm</div>
+                    <div class="prompt-actions">
+                        <button class="history-btn" onclick="showVersionHistory('wildness.user.txt')" title="Version History">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                    </div>
+                </li>
                 <li class="prompt-item" data-prompt="general.user.txt">
                     <div class="prompt-name">General Questions</div>
                     <div class="prompt-description">Handles questions about completed itineraries</div>
@@ -980,7 +992,6 @@
         <div class="content-area">
             <div class="tabs">
                 <button class="tab active" data-tab="editor">Direct Editor</button>
-                <button class="tab" data-tab="chat">AI Assistant</button>
             </div>
             
             <div class="tab-content">
@@ -1910,6 +1921,28 @@
         document.getElementById('chatInput').addEventListener('input', function() {
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Save shortcut: Ctrl+S or Cmd+S
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                
+                // Only save if we're on the editor tab and have an editor loaded
+                const activeTab = document.querySelector('.tab.active').dataset.tab;
+                if (activeTab === 'editor' && editor) {
+                    savePrompt();
+                    // Visual feedback that save was triggered
+                    const saveBtn = document.querySelector('.btn-primary[onclick="savePrompt()"]');
+                    if (saveBtn) {
+                        saveBtn.style.transform = 'scale(0.95)';
+                        setTimeout(() => {
+                            saveBtn.style.transform = '';
+                        }, 150);
+                    }
+                }
+            }
         });
         
         // Close confirmation dialog when clicking outside

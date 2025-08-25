@@ -2,7 +2,7 @@ BACHELOR PARTY PLANNING TASK:
   - Destination: ${destination}
   - Group Size: ${groupSize} people
   - Duration: ${duration} days
-  - Wildness Level: ${wildnessLevel}/5
+  - Wildness Level: ${wildnessLevel}/10
   - Budget: ${budget}
   - Special Requests: ${specialRequests}
   - User Request: "${userExplicitRequest || 'Standard planning'}"
