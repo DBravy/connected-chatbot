@@ -6,10 +6,17 @@ class ChatInterface {
         this.messagesContainer = document.getElementById('chat-messages');
         this.currentState = null;
         
+        // Background element
+        this.backgroundContainer = document.getElementById('background-container');
+        this.socialProofContainer = document.getElementById('social-proof');
+        this.hasStartedChat = false;
+        
         // Itinerary elements
         this.itinerarySidebar = document.getElementById('itinerary-sidebar');
         this.itineraryContent = document.getElementById('itinerary-content');
         this.toggleButton = document.getElementById('toggle-sidebar');
+        this.inputContainer = document.getElementById('chat-input-container');
+        this.hasAnimatedInputToBottom = false;
         
         // Current itinerary data
         this.currentItinerary = null;
@@ -91,7 +98,7 @@ class ChatInterface {
         if (this.toggleButton && this.itinerarySidebar) {
             this.toggleButton.textContent = this.itinerarySidebar.classList.contains('collapsed') ? '☰' : '×';
         }
-        this.addMessage("Welcome to Connected. Where are you planning to have your bachelor party?", 'bot');
+        // Don't show welcome message initially - will show after first user message
     }
 
     setupEventListeners() {
@@ -135,12 +142,77 @@ class ChatInterface {
         this.toggleButton.textContent = '×';
     }
 
+    fadeOutBackground() {
+        if (this.backgroundContainer && !this.hasStartedChat) {
+            this.backgroundContainer.classList.add('fade-out');
+            this.hasStartedChat = true;
+            
+            // Remove the background element after fade completes to free up resources
+            setTimeout(() => {
+                if (this.backgroundContainer && this.backgroundContainer.parentNode) {
+                    this.backgroundContainer.remove();
+                    this.backgroundContainer = null;
+                }
+            }, 800); // Match the CSS transition duration
+        }
+    }
+
+    fadeOutLandingElements() {
+        if (this.hasStartedChat) return;
+        this.hasStartedChat = true;
+        if (this.backgroundContainer) {
+            this.backgroundContainer.classList.add('fade-out');
+        }
+        if (this.socialProofContainer) {
+            this.socialProofContainer.classList.add('fade-out');
+        }
+        setTimeout(() => {
+            if (this.backgroundContainer && this.backgroundContainer.parentNode) {
+                this.backgroundContainer.remove();
+                this.backgroundContainer = null;
+            }
+            if (this.socialProofContainer && this.socialProofContainer.parentNode) {
+                this.socialProofContainer.remove();
+                this.socialProofContainer = null;
+            }
+        }, 800);
+    }
+
     async sendMessage() {
         const message = this.messageInput.value.trim();
         if (!message) return;
 
+        // Check if this is the first message before setting hasStartedChat
+        const isFirstMessage = !this.hasStartedChat;
+
+        // Fade out background on first message
+        this.fadeOutLandingElements();
+
+        // Show welcome message if this is the first user message
+        if (isFirstMessage) {
+            this.addMessage("Welcome to Connected. Where are you planning to have your bachelor party?", 'bot');
+        }
+
         // Add user message to chat
         this.addMessage(message, 'user');
+        // On first user message, animate input from center to bottom
+        if (!this.hasAnimatedInputToBottom && this.inputContainer) {
+            this.hasAnimatedInputToBottom = true;
+            // Add slide-down state to trigger transition
+            this.inputContainer.classList.add('slide-down');
+            // Ensure messages are not hidden behind the fixed input
+            if (this.messagesContainer) {
+                this.messagesContainer.style.paddingBottom = '120px';
+            }
+            // Remove centered state after transition completes
+            const onTransitionEnd = (e) => {
+                if (e.propertyName === 'top' || e.propertyName === 'transform') {
+                    this.inputContainer.classList.remove('centered');
+                    this.inputContainer.removeEventListener('transitionend', onTransitionEnd);
+                }
+            };
+            this.inputContainer.addEventListener('transitionend', onTransitionEnd);
+        }
         if (!this.hasShownSidebar && this.itinerarySidebar) {
             this.ensureSidebarVisible();
             this.hasShownSidebar = true;

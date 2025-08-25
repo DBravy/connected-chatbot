@@ -28,6 +28,7 @@ You are an expert AI prompt engineer with deep knowledge of the Connected bachel
 3. **NO META-HEADERS**: Never add "MODIFIED PROMPT:" or similar headers
 4. **TEMPLATE VARIABLE SAFETY**: All \${variable} syntax must remain exactly unchanged
 5. **MINIMAL FOOTPRINT**: Make the smallest change that achieves the desired behavior
+6. **VERSION AWARENESS**: Always create meaningful commit messages that describe the changes
 
 ### GOOD MODIFICATION EXAMPLES:
 - User wants "more casual tone" → Add specific casual language guidelines to existing tone section
@@ -52,6 +53,7 @@ When analyzing changes, specify:
 - Precise text to find (for replacements)
 - Exact new content to add/replace
 - Why this specific change achieves the user's goal
+- A meaningful commit message describing the change
 
 Your job is to understand what the user wants to change about their chatbot's behavior and provide surgical, targeted modifications to achieve that goal with minimal disruption.
 `;
@@ -68,11 +70,13 @@ ANALYSIS FRAMEWORK:
 2. Which prompt file(s) control this behavior?  
 3. What is the minimum change needed?
 4. Where exactly should the change be made?
+5. What commit message best describes this change?
 
 RESPONSE FORMAT:
 {
   "needsChanges": boolean,
   "response": "I'll make targeted changes to [specific sections] to [specific behavior change]. This will [explain expected outcome].",
+  "commitMessage": "Brief description of what this change accomplishes",
   "changes": [
     {
       "promptFile": "[filename]",
@@ -97,6 +101,7 @@ VALIDATION CHECKLIST:
 ☐ Structure maintained
 ☐ Specific sections identified
 ☐ Clear behavior outcome predicted
+☐ Meaningful commit message provided
 `;
 
 export default async function handler(req, res) {
@@ -144,7 +149,8 @@ async function analyzeAndModifyPrompts(userMessage, currentPrompts, previewMode 
   if (!analysis.needsChanges) {
     return {
       response: analysis.response,
-      modifiedPrompts: null
+      modifiedPrompts: null,
+      commitMessage: null
     };
   }
   
@@ -190,6 +196,7 @@ async function analyzeAndModifyPrompts(userMessage, currentPrompts, previewMode 
   const result = {
     response: analysis.response,
     modifiedPrompts: Object.keys(modifiedPrompts).length > 0 ? modifiedPrompts : null,
+    commitMessage: analysis.commitMessage || null,
     previewMode
   };
   
@@ -215,12 +222,14 @@ CRITICAL ANALYSIS RULES:
 - Preserve all template variables (\${variable}) and structure
 - Focus on the specific behavior change requested
 - Avoid making cosmetic or unnecessary changes
+- Create a meaningful commit message that describes the change
 
 Analyze the request and produce a JSON object with this exact shape:
 
 {
   "needsChanges": boolean,
   "response": string (a clear explanation of what will be changed and why),
+  "commitMessage": string (brief description of the change for version history),
   "changes": [
     {
       "promptFile": "reducer.user.txt" | "general.user.txt" | "options.user.txt" | "selector.system.txt" | "response.user.txt",
@@ -244,17 +253,18 @@ Rules:
 - Keep the object small and concise.
 - Omit "changes" or use an empty array if none are needed.
 - The "response" should clearly explain what changes will be made in user-friendly language.
+- The "commitMessage" should be a brief, descriptive summary suitable for version history.
 `;
 
   const openai = getOpenAI();
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4-turbo",  // Using gpt-4-turbo as fallback since gpt-5 might not be available
       messages: [
         {
           role: "system",
-          content: "You are an expert prompt engineer. Respond ONLY with valid JSON as specified. Focus on explaining changes clearly."
+          content: "You are an expert prompt engineer. Respond ONLY with valid JSON as specified. Focus on explaining changes clearly and providing meaningful commit messages."
         },
         { role: "user", content: prompt }
       ],
@@ -289,12 +299,36 @@ Rules:
         fr === "length"
           ? "I hit the output limit before I could finish analyzing your request. Please try again or break it into smaller parts."
           : "I couldn't parse the analysis response. Please try rephrasing your request.",
+      commitMessage: null,
       changes: []
     };
   } catch (error) {
     console.error('OpenAI API Error:', error);
     if (error.code === 'model_not_found') {
-      throw new Error('GPT-5 model not found. Please ensure you have access to GPT-5 or use gpt-4-turbo as a fallback.');
+      // Try with gpt-4 as fallback
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [
+            {
+              role: "system",
+              content: "You are an expert prompt engineer. Respond ONLY with valid JSON as specified. Focus on explaining changes clearly and providing meaningful commit messages."
+            },
+            { role: "user", content: prompt }
+          ],
+          response_format: { type: "json_object" },
+          max_tokens: 4000
+        });
+
+        const choice = response.choices?.[0];
+        const message = choice?.message;
+        const parsed = tryParseJSON(message?.content);
+        if (parsed) return parsed;
+      } catch (fallbackError) {
+        console.error('Fallback model also failed:', fallbackError);
+      }
+      
+      throw new Error('GPT models not available. Please ensure you have access to GPT-4 or newer models.');
     } else if (error.code === 'insufficient_quota') {
       throw new Error('OpenAI API quota exceeded. Please check your billing settings.');
     } else if (error.code === 'unsupported_value') {
@@ -350,7 +384,7 @@ Return the modified prompt now:`;
   
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5",
+      model: "gpt-4-turbo",
       messages: [
         {
           role: "system",
@@ -378,9 +412,9 @@ Return the modified prompt now:`;
     
     // Fallback to GPT-4 with same strict instructions
     if (error.code === 'model_not_found') {
-      console.log('Falling back to gpt-4-turbo with surgical instructions...');
+      console.log('Falling back to gpt-4 with surgical instructions...');
       const response = await openai.chat.completions.create({
-        model: "gpt-4-turbo",
+        model: "gpt-4",
         messages: [
           {
             role: "system",
@@ -397,4 +431,30 @@ Return the modified prompt now:`;
     
     throw error;
   }
+}
+
+// Helper function to clean meta-headers that AI might add
+function cleanMetaHeaders(prompt) {
+  const lines = prompt.split('\n');
+  const cleanedLines = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Skip lines that look like meta-headers
+    if (line.match(/^(MODIFIED|UPDATED|NEW) PROMPT:?/i) ||
+        line.match(/^Here is the modified prompt:?/i) ||
+        line.match(/^Modified version:?/i)) {
+      continue;
+    }
+    
+    // Skip empty lines immediately after meta-headers
+    if (cleanedLines.length === 0 && line.trim() === '') {
+      continue;
+    }
+    
+    cleanedLines.push(line);
+  }
+  
+  return cleanedLines.join('\n');
 }

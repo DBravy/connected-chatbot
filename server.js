@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { ChatHandler } from './api/chatHandler.js';
 import aiPromptModifierHandler from './api/ai-prompt-modifier.js';
+import promptsHandler from './api/prompts.js';
+
 
 import fs from 'fs/promises';
 import OpenAI from 'openai';
@@ -20,6 +22,29 @@ const port = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 app.use(express.static('public'));
+
+app.set('etag', false);
+app.all('/api/prompts', (req, res) => promptsHandler(req, res));
+
+// For all API responses (or just /api/prompts if you prefer), force no-cache
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+  next();
+});
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(
+      `[${new Date().toISOString()}] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${Date.now()-start}ms)`,
+      { params: req.params, query: req.query }
+    );
+  });
+  next();
+});
 
 const chatHandler = new ChatHandler();
 const openai = new OpenAI({
@@ -45,6 +70,8 @@ async function ensureDirectories() {
   await fs.mkdir(BACKUPS_DIR, { recursive: true });
   await fs.mkdir(DEFAULTS_DIR, { recursive: true });
 }
+
+
 
 // Create backup of current prompt
 async function createBackup(filename, content) {
@@ -149,6 +176,14 @@ app.get('/api/prompts', async (req, res) => {
       details: error.message 
     });
   }
+});
+
+app.all('/api/prompts', (req, res) => {
+  console.log('[compat] forwarding to api/prompts.js', {
+    method: req.method,
+    query: req.query,
+  });
+  return promptsHandler(req, res);
 });
 
 // Get specific prompt

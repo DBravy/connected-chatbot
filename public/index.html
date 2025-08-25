@@ -8,18 +8,27 @@
 </head>
 <body>
     <div class="app-container">
+        <!-- Background Image Container -->
+        <div class="background-container" id="background-container">
+            <img src="images/background.jpg" alt="Background" class="background-image">
+        </div>
+        
         <!-- Chat Section -->
         <div class="chat-section">
             <div class="chat-container">
                 <div class="chat-header">
                     <img src="images/logo_short.png" alt="Connected logo" class="app-logo">
+                    <!-- Login Button -->
+                    <div class="login-container">
+                        <button id="login-button" class="login-btn">Login</button>
+                    </div>
                 </div>
                 
                 <div id="chat-messages" class="chat-messages">
                     <!-- Messages will be added here -->
                 </div>
                 
-                <div class="chat-input-container">
+                <div class="chat-input-container centered" id="chat-input-container">
                     <div class="input-wrapper">
                         <textarea id="message-input" rows="1" placeholder="Tell me about your bachelor party..."></textarea>
                         <button id="send-button" aria-label="Send message" title="Send">
@@ -31,6 +40,16 @@
                     </div>
                 </div>
             </div>
+        </div>
+
+        <div class="social-proof-container" id="social-proof">
+            <ul class="social-proof-logos">
+                <li><img src="images/customer_logos/le_journal_de_montreal.svg" alt="Le Journal de Montréal"></li>
+                <li><img src="images/customer_logos/toronto_sun.svg" alt="Toronto Sun"></li>
+                <li><img src="images/customer_logos/vice.svg" alt="Vice"></li>
+                <li><img src="images/customer_logos/eater.svg" alt="Eater"></li>
+                <li><img src="images/customer_logos/fast_company.svg" alt="Fast Company"></li>
+            </ul>
         </div>
 
         <div class="itinerary-section collapsed" id="itinerary-sidebar">
