@@ -880,3 +880,10 @@ body {
         width: 140px;
     }
 }
+
+/* Utility: disable animations after first render */
+.no-animate {
+    opacity: 1 !important;
+    transform: none !important;
+    animation: none !important;
+}

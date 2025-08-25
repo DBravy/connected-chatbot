@@ -940,6 +940,16 @@ async reduceState(conversation, userMessage) {
       if (conversation.facts[key] && update) {
         const currentFact = conversation.facts[key];
         
+        // Special handling for destination unavailable
+        if (key === 'destination' && update.value === 'unavailable') {
+          conversation.facts[key] = { 
+            ...currentFact, 
+            ...update,
+            status: 'corrected'
+          };
+          return;
+        }
+        
         // Priority system for status updates
         const statusPriority = {
           'unknown': 0,
@@ -1300,9 +1310,14 @@ transformConversationFacts(facts) {
   
     // From GATHERING to PLANNING
     if (conversation.phase === PHASES.GATHERING) {
-      // Essentials must be set to ever leave gathering
+      // Check if destination is unavailable (user said no to Austin)
+      if (facts.destination.value === "unavailable") {
+        return conversation.phase; // Stay in gathering - can't proceed without valid destination
+      }
+      
+      // Essentials must be set to ever leave gathering (destination can be "assumed" or "set" for Austin)
       const essentialFactsSet = [
-        facts.destination.status === FIELD_STATUS.SET,
+        facts.destination.status === FIELD_STATUS.SET || (facts.destination.status === FIELD_STATUS.ASSUMED && facts.destination.value === "Austin"),
         facts.groupSize.status === FIELD_STATUS.SET,
         facts.startDate.status === FIELD_STATUS.SET,
         facts.endDate.status === FIELD_STATUS.SET

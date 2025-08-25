@@ -23,6 +23,10 @@ class ChatInterface {
         this.tripFacts = null;
         this.hasShownSidebar = false;
         
+        // Animation state flags for itinerary
+        this.hasShownTripSummaryOnce = false;
+        this.hasShownItineraryOnce = false;
+        
         this.init();
     }
 
@@ -360,7 +364,7 @@ class ChatInterface {
         }
         
         const summaryHtml = `
-            <div class="trip-summary">
+            <div class="trip-summary ${this.hasShownTripSummaryOnce ? 'no-animate' : ''}">
                 <h3>Your Trip to ${destination}</h3>
                 <div class="trip-details">
                     <p><strong>📅 Dates:</strong> ${dateRange}</p>
@@ -372,6 +376,7 @@ class ChatInterface {
         
         // Update the content
         this.itineraryContent.innerHTML = summaryHtml;
+        this.hasShownTripSummaryOnce = true;
     }
 
     updateItinerary() {
@@ -407,7 +412,7 @@ class ChatInterface {
             }
             
             itineraryHtml += `
-                <div class="trip-summary">
+                <div class="trip-summary ${this.hasShownItineraryOnce ? 'no-animate' : ''}">
                     <h3>Your Trip to ${destination}</h3>
                     <div class="trip-details">
                         <p><strong>📅 Dates:</strong> ${dateRange}</p>
@@ -427,7 +432,7 @@ class ChatInterface {
                                bookingCount === 1 ? '1 booking' : `${bookingCount} bookings`;
             
             itineraryHtml += `
-                <div class="day-section">
+                <div class="day-section ${this.hasShownItineraryOnce ? 'no-animate' : ''}">
                     <div class="day-header">
                         <div class="day-indicator"></div>
                         <div class="day-title">${dayDate}</div>
@@ -456,7 +461,7 @@ class ChatInterface {
                     const totalPrice = price * groupSize;
                     
                     itineraryHtml += `
-                      <div class="service-card ${statusClass}" data-service-id="${service.serviceId || ''}" data-pending="${isPending}">
+                      <div class="service-card ${statusClass} ${this.hasShownItineraryOnce ? 'no-animate' : ''}" data-service-id="${service.serviceId || ''}" data-pending="${isPending}">
                         <div class="service-card-content">
                           <div class="service-header">
                             <div class="service-time">${timeSlot || ''}</div>
@@ -515,6 +520,11 @@ class ChatInterface {
         });
         
         this.itineraryContent.innerHTML = itineraryHtml;
+        // After first full itinerary render, disable further animations
+        this.hasShownItineraryOnce = true;
+        if (this.tripFacts) {
+            this.hasShownTripSummaryOnce = true;
+        }
     }
 
     calculateDayDate(dayIndex) {

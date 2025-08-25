@@ -35,6 +35,6 @@ BELOW RANGE HANDLING:
 TASK:
 1. ${wasNegative ? 'Acknowledge their negative number with humor and understanding' : 'Acknowledge their wildness level with appropriate enthusiasm'}
 2. Match your energy level to their ${wasNegative ? 'desire for low-key vibes (treat as 1)' : `wildness score (${wildnessValue})`}
-3. End by asking what city they're planning to have the bachelor party in
+3. End by asking if they're planning this for Austin (our current city)
 
 Keep it under 3 short sentences total, and under 25 words. Be conversational and natural.

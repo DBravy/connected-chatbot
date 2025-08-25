@@ -44,10 +44,10 @@ export const createNewConversation = (userId = null) => ({
   facts: {
     // ESSENTIAL - Must have to proceed
     destination: { 
-      value: null, 
-      status: FIELD_STATUS.UNKNOWN, 
-      confidence: 0, 
-      provenance: null,
+      value: "Austin", 
+      status: FIELD_STATUS.ASSUMED, 
+      confidence: 0.9, 
+      provenance: "default assumption",
       priority: FACT_PRIORITY.ESSENTIAL
     },
     groupSize: { 
