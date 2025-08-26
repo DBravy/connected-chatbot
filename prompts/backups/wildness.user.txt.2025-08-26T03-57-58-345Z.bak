@@ -26,7 +26,7 @@ ${wasNegative ? `
 ${wasValueClamped && originalValue > 50 ? `
 EXTREME VALUE HANDLING:
 - User said ${originalValue} - acknowledge their enthusiasm
-- Examples: "${originalValue}?! I gotchu", "Damn, ${originalValue}! I'll see what I can"` : ''}
+- Examples: "${originalValue}?! I think I know what you mean", "Damn, ${originalValue}! I'll see what I can do"` : ''}
 
 ${wasValueClamped && clampingReason === 'below_range' && !wasNegative ? `
 BELOW RANGE HANDLING:

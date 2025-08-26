@@ -9,6 +9,7 @@ class ChatInterface {
         // Background element
         this.backgroundContainer = document.getElementById('background-container');
         this.socialProofContainer = document.getElementById('social-proof');
+        this.lovedByContainer = document.getElementById('loved-by');
         this.hasStartedChat = false;
         
         // Itinerary elements
@@ -172,6 +173,10 @@ class ChatInterface {
         if (this.socialProofContainer) {
             this.socialProofContainer.classList.add('fade-out');
         }
+        const loved = this.lovedByContainer;
+        if (loved) {
+            loved.classList.add('fade-out');
+        }
         setTimeout(() => {
             if (this.backgroundContainer && this.backgroundContainer.parentNode) {
                 this.backgroundContainer.remove();
@@ -180,6 +185,10 @@ class ChatInterface {
             if (this.socialProofContainer && this.socialProofContainer.parentNode) {
                 this.socialProofContainer.remove();
                 this.socialProofContainer = null;
+            }
+            if (this.lovedByContainer && this.lovedByContainer.parentNode) {
+                this.lovedByContainer.remove();
+                this.lovedByContainer = null;
             }
         }, 800);
     }

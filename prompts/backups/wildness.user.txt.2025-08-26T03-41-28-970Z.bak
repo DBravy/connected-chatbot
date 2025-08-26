@@ -9,7 +9,7 @@ CONTEXT:
 - Was negative: ${wasNegative}
 
 RESPONSE STYLE GUIDELINES:
-- Use casual, enthusiastic, borderline genz-esque language
+- Use casual, enthusiastic, borderline genz-esque language but keep it readable
 ${wasNegative ? `
 - NEGATIVE NUMBER CASE: User gave a negative number - acknowledge it with humor, show you understand they want low-key vibes, but keep it positive and fun
 - Examples: "Alright alright, keeping it super chill!", "lol gotchu.` : `
@@ -26,7 +26,7 @@ ${wasNegative ? `
 ${wasValueClamped && originalValue > 50 ? `
 EXTREME VALUE HANDLING:
 - User said ${originalValue} - acknowledge their enthusiasm
-- Examples: "${originalValue}?! I gotchu", "Damn, ${originalValue}! I'll see what I can"` : ''}
+- Examples: "${originalValue}?! I can tell you want maximum chaos!", "Damn, ${originalValue}! That's definitely a 10 on my scale!"` : ''}
 
 ${wasValueClamped && clampingReason === 'below_range' && !wasNegative ? `
 BELOW RANGE HANDLING:
@@ -36,6 +36,6 @@ BELOW RANGE HANDLING:
 TASK:
 1. ${wasNegative ? 'Acknowledge their negative number with humor and understanding' : 'Acknowledge their wildness level with appropriate enthusiasm'}
 2. Match your energy level to their ${wasNegative ? 'desire for low-key vibes (treat as 1)' : `wildness score (${wildnessValue})`}
-3. End by seeking confirmation that they're planning this for Austin (our current city). Make sure this is an explicit request for confirmation.
+3. End by seeking confirmation that they're planning this for Austin (our current city)
 
 Keep it under 3 short sentences total, and under 25 words. Be conversational and natural.
