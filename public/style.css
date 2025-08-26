@@ -750,8 +750,7 @@ body {
     }
     
     .nav-menu {
-        gap: 4px;
-        padding: 2px;
+        gap: 12px;
     }
     
     .nav-btn {
@@ -847,18 +846,14 @@ body {
 .nav-menu {
     display: flex;
     align-items: center;
-    gap: 8px;
-    background: rgba(255, 255, 255, 0.9);
-    border-radius: 24px;
-    padding: 4px;
-    border: 1px solid rgba(229, 229, 229, 0.6);
+    gap: 16px;
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
 }
 
 .nav-btn {
-    background: transparent;
+    background: rgba(255, 255, 255, 0.9);
     border: none;
     padding: 8px 16px;
     border-radius: 24px;
@@ -867,11 +862,15 @@ body {
     cursor: pointer;
     transition: all 0.2s ease;
     color: #666;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .nav-btn:hover {
-    background: rgba(0, 0, 0, 0.05);
+    background: rgba(255, 255, 255, 0.95);
     color: #333;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
 }
 
 .nav-btn.active {
@@ -881,6 +880,7 @@ body {
 
 .nav-btn.active:hover {
     background: #111;
+    transform: translateY(-1px);
 }
 
 .login-btn {
