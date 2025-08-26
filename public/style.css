@@ -74,21 +74,39 @@ body {
 }
 
 .chat-header {
-    padding: 20px 20px;
+    padding: 16px 20px;
     background: rgba(255, 255, 255, 0.95);
     backdrop-filter: blur(10px);
     color: #333;
-    border-bottom: 1px solid rgba(229, 229, 229, 0.5);
+    border: 1px solid rgba(229, 229, 229, 0.6);
+    border-radius: 24px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     display: flex;
     justify-content: space-between;
     align-items: center;
     position: relative;
     z-index: 10;
-    min-height: 80px;
+    min-height: 72px;
+    width: min(960px, calc(100% - 32px));
+    margin: 20px auto 12px auto;
 }
 
 .app-logo {
     height: 48px;
+    width: auto;
+}
+
+.center-logo-container {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.center-logo {
+    height: 40px;
     width: auto;
 }
 
@@ -831,17 +849,20 @@ body {
     align-items: center;
     gap: 8px;
     background: rgba(255, 255, 255, 0.9);
-    border-radius: 12px;
+    border-radius: 24px;
     padding: 4px;
     border: 1px solid rgba(229, 229, 229, 0.6);
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
 }
 
 .nav-btn {
     background: transparent;
     border: none;
     padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 14px;
+    border-radius: 24px;
+    font-size: 15px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -866,7 +887,7 @@ body {
     background-color: white;
     color: black;
     border: 1px solid black;
-    border-radius: 8px;
+    border-radius: 24px;
     padding: 14px 28px;
     font-size: 16px;
     font-weight: 800;
