@@ -253,6 +253,8 @@ export class ChatHandler {
       availableServices: conversation.availableServices,
       selectedServices: conversation.selectedServices,
       expectingFirstWildnessResponse: conversation.expectingFirstWildnessResponse,
+      // NEW: persist awaiting fact capture hint
+      awaiting: conversation.awaiting || { fact: null, sinceMessageId: null },
       dayByDayPlanning: {
         ...conversation.dayByDayPlanning,
         usedServices: Array.from(conversation.dayByDayPlanning?.usedServices || [])
@@ -264,13 +266,16 @@ export class ChatHandler {
 
   importSnapshot(conversation, snapshot) {
     const snap = this.deepClone(snapshot);
-
+  
     conversation.phase = snap.phase ?? conversation.phase;
     conversation.facts = snap.facts ?? conversation.facts;
     conversation.availableServices = snap.availableServices ?? [];
     conversation.selectedServices = snap.selectedServices ?? {};
     conversation.expectingFirstWildnessResponse = snap.expectingFirstWildnessResponse ?? false;
-
+  
+    // NEW: restore awaiting (fallback to a safe default)
+    conversation.awaiting = snap.awaiting ?? conversation.awaiting ?? { fact: null, sinceMessageId: null };
+  
     // Merge then rehydrate Set <- Array/object
     conversation.dayByDayPlanning = {
       ...(conversation.dayByDayPlanning || {}),
@@ -282,10 +287,11 @@ export class ChatHandler {
       : Array.isArray(us) ? new Set(us)
       : (us && typeof us === 'object') ? new Set(Object.values(us))
       : new Set();
-
+  
     conversation.messages = snap.messages ?? conversation.messages;
     return conversation;
   }
+  
 
   ensureUsedServicesSet(conversation) {
     const d = conversation.dayByDayPlanning || (conversation.dayByDayPlanning = {});
@@ -794,145 +800,203 @@ export class ChatHandler {
   }
   
 
-  // Core LLM reducer - single point of intelligence
-// MODIFY the reduceState method in chatHandler.js around line 400
-async reduceState(conversation, userMessage) {
-
-  const currentFacts = this.serializeFacts(conversation.facts);
-  const recentMessages = conversation.messages.slice(-6).map(m => `${m.role}: ${m.content}`).join('\n');
-  const currentYear = new Date().getFullYear();
+  async reduceState(conversation, userMessage) {
+    // ---------- PRE: deterministic capture when we're awaiting group size ----------
+    const assumptions = [];
+    let awaitingSystemNote = '';
   
-  // Check if we're in planning mode with an active day
-  const isInPlanningWithActiveDay = conversation.phase === 'planning' && 
-    conversation.dayByDayPlanning?.currentDayPlan?.selectedServices?.length > 0;
-  
-  
-  const planningContext = isInPlanningWithActiveDay ? `
-  
-  CURRENT DAY PLANNING CONTEXT:
-  - Currently planning Day ${(conversation.dayByDayPlanning.currentDay || 0) + 1}
-  - Current day has ${conversation.dayByDayPlanning.currentDayPlan.selectedServices.length} services selected:
-  ${conversation.dayByDayPlanning.currentDayPlan.selectedServices.map(s => 
-    `  * ${s.serviceName} (${s.timeSlot})`
-  ).join('\n')}
-  ` : '';
-
-  const intentTypeOptions = (conversation?.phase === 'planning')
-  ? '"approval_next", "substitution", "addition", "removal", "show_day", "general_question"'
-  : '"edit_itinerary", "general_question", "approval_next"';
-  
-  const reducerTemplate = await this.loadTemplate("reducer.user.txt");
-  
-  // Log the actual template content around problematic areas
-  const problemArea = reducerTemplate.indexOf("conversation.dayByDayPlanning");
-
-
-
-
-  const planningPhaseInstructions = conversation.phase === 'planning' ? 
-    `PLANNING PHASE INTENT CLASSIFICATION:
-    When in planning phase, classify user intent precisely:
-    
-    - "approval_next": User wants to approve current day and move to next day
-      Examples: "sounds good", "yes", "let's move on", "ready for day 2", "next day", "continue"
-  
-    - "show_day": User wants to view/work on a SPECIFIC day (mentions day number/weekday/date)
-      Examples: "go to day 2", "show me Friday", "let's plan Sept 5", "can we do day one now?"
-      
-    - "substitution": User wants to swap/replace something in current day  
-      Examples: "gentlemen's club instead of nightclub", "swap the restaurant", "change dinner to steakhouse"
-      
-    - "addition": User wants to add something new to current day
-      Examples: "add golf", "can we include", "also book"
-      
-    - "removal": User wants to remove something from current day  
-      Examples: "skip the dinner", "remove the club", "don't need transportation"
-      
-    - "general_question": User asking for info/details
-      Examples: "what time does it start", "how much does it cost", "where is this located"
-    ` : '';
-
-  const reducerPrompt = this.renderTemplate(reducerTemplate, {
-    currentYear,
-    conversation,
-    currentFacts,
-    recentMessages,
-    planningContext,
-    userMessage,
-    intentTypeOptions,
-    planningPhaseInstructions
-  });
-
-
-
-  try {
-    const response = await this.openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "You are an expert bachelor party planner with intelligent intent classification. Return proper JSON with intent_type classification." },
-        { role: "user", content: reducerPrompt }
-      ],
-      functions: [reducerFunction],
-      function_call: { name: "reduce_state" },
-      temperature: 0.3,
-      max_tokens: 1000
-    });
-
-    const functionCall = response.choices[0].message.function_call;
-
-    if (functionCall) {
-      // Parse safely
-      let parsed;
-      try {
-        parsed = JSON.parse(functionCall.arguments || "{}");
-      } catch {
-        parsed = {};
-      }
-
-  // Provide required defaults (schema isn't enforced at runtime)
-  const result = {
-    facts: {},
-    assumptions: [],
-    blocking_questions: [],
-    safe_transition: false,
-    reply: "",
-    intent_type: "general_question",
-    ...parsed,
-  };
-
-  // Ensure facts is an object
-  if (!result.facts || typeof result.facts !== "object" || Array.isArray(result.facts)) {
-    result.facts = {};
-  }
-
-  // Normalize date fields if present
-  const normalizeDateField = (key) => {
-    const f = result.facts[key];
-    if (f && typeof f === "object" && f.value) {
-      f.value = this.parseUserDate(String(f.value));
+    // Ensure awaiting exists even if older snapshots didn't have it
+    if (!conversation.awaiting) {
+      conversation.awaiting = { fact: null, sinceMessageId: null };
     }
-  };
-  normalizeDateField("startDate");
-  normalizeDateField("endDate");
-
-  return result;
-}
-  } catch (error) {
-    console.error('Error in LLM reducer:', error);
+  
+    // If we *just asked* "How many people..." and the user sent a bare number,
+    // capture it deterministically here, then nudge the model forward.
+    if (conversation.awaiting?.fact === 'groupSize') {
+      const parsed = this.parseGroupSizeFromMessage(userMessage); // helper below
+      if (parsed != null) {
+        const n = Math.max(1, Math.min(300, parsed)); // sanity clamp
+        this.setFact(conversation, 'groupSize', n, `awaiting.groupSize numeric capture ("${userMessage}")`);
+        // Clear awaiting now that we've set it
+        conversation.awaiting = { fact: null, sinceMessageId: null };
+        assumptions.push(`Captured groupSize=${n} from numeric-only reply while awaiting group size.`);
+  
+        // Tell the reducer to *not* ask this again and move on to the next missing essential fact
+        awaitingSystemNote =
+          `\nassistant: (system note) The user has just provided group size = ${n}. ` +
+          `Treat facts.groupSize as SET and proceed to the next missing essential fact.\n`;
+      }
+    }
+  
+    // ---------- Build reducer prompt ----------
+    const currentFacts = this.serializeFacts(conversation.facts);
+  
+    // Inject the system note at the end of recent messages so the template sees it
+    const recentMessagesBase = conversation.messages.slice(-6).map(m => `${m.role}: ${m.content}`).join('\n');
+    const recentMessages = recentMessagesBase + awaitingSystemNote;
+  
+    const currentYear = new Date().getFullYear();
+  
+    // Planning context if relevant (safe guards around optional nesting)
+    const isInPlanningWithActiveDay =
+      conversation.phase === 'planning' &&
+      conversation.dayByDayPlanning &&
+      conversation.dayByDayPlanning.currentDayPlan &&
+      Array.isArray(conversation.dayByDayPlanning.currentDayPlan.selectedServices) &&
+      conversation.dayByDayPlanning.currentDayPlan.selectedServices.length > 0;
+  
+    const planningContext = isInPlanningWithActiveDay ? `
+    
+    CURRENT DAY PLANNING CONTEXT:
+    - Currently planning Day ${(conversation.dayByDayPlanning.currentDay || 0) + 1}
+    - Current day has ${conversation.dayByDayPlanning.currentDayPlan.selectedServices.length} services selected:
+    ${conversation.dayByDayPlanning.currentDayPlan.selectedServices.map(s =>
+      `  * ${s.serviceName} (${s.timeSlot})`
+    ).join('\n')}
+    ` : '';
+  
+    const intentTypeOptions = (conversation?.phase === 'planning')
+      ? '"approval_next", "substitution", "addition", "removal", "show_day", "general_question"'
+      : '"edit_itinerary", "general_question", "approval_next"';
+  
+    const reducerTemplate = await this.loadTemplate("reducer.user.txt");
+  
+    const planningPhaseInstructions = conversation.phase === 'planning' ? 
+      `PLANNING PHASE INTENT CLASSIFICATION:
+      When in planning phase, classify user intent precisely:
+      
+      - "approval_next": User wants to approve current day and move to next day
+      - "show_day": User wants to view/work on a SPECIFIC day
+      - "substitution": Swap/replace something in current day
+      - "addition": Add something new to current day
+      - "removal": Remove something from current day
+      - "general_question": Info/details request
+      ` : '';
+  
+    const reducerPrompt = this.renderTemplate(reducerTemplate, {
+      currentYear,
+      conversation,
+      currentFacts,
+      recentMessages,
+      planningContext,
+      userMessage,
+      intentTypeOptions,
+      planningPhaseInstructions
+    });
+  
+    // ---------- Call model with function/tool to enforce structure ----------
+    try {
+      const response = await this.openai.chat.completions.create({
+        model: "gpt-4o", // keep your current model here for the reducer, or swap later
+        messages: [
+          { role: "system", content: "You are an expert bachelor party planner with intelligent intent classification. Return proper JSON with intent_type classification." },
+          { role: "user", content: reducerPrompt }
+        ],
+        functions: [reducerFunction],
+        function_call: { name: "reduce_state" },
+        temperature: 0.2,
+        max_tokens: 1000
+      });
+  
+      const functionCall = response.choices?.[0]?.message?.function_call;
+      if (functionCall) {
+        let parsed;
+        try {
+          parsed = JSON.parse(functionCall.arguments || "{}");
+        } catch {
+          parsed = {};
+        }
+  
+        // Ensure fields exist
+        parsed.facts = parsed.facts || {};
+        parsed.assumptions = Array.isArray(parsed.assumptions) ? parsed.assumptions : [];
+        parsed.blocking_questions = Array.isArray(parsed.blocking_questions) ? parsed.blocking_questions : [];
+        parsed.safe_transition = Boolean(parsed.safe_transition);
+        parsed.reply = typeof parsed.reply === 'string' ? parsed.reply : "Got it.";
+  
+        // ---------- Merge our PRE assumptions into the reducer output ----------
+        if (assumptions.length) {
+          parsed.assumptions.push(...assumptions);
+        }
+  
+        // If we deterministically captured groupSize above, make sure reducer output reflects it.
+        const haveGS = !!(conversation && conversation.facts && conversation.facts.groupSize && conversation.facts.groupSize.value != null);
+        if (haveGS) {
+          const n = conversation.facts.groupSize.value;
+          parsed.facts.groupSize = {
+            value: n,
+            status: 'set',
+            confidence: Math.max(0.95, (conversation.facts.groupSize.confidence || 0.95)),
+            provenance: conversation.facts.groupSize.provenance || 'awaiting.groupSize numeric capture'
+          };
+        }
+  
+        // ---------- POST: set/clear `awaiting` based on the model's reply ----------
+        const replyText = parsed.reply || '';
+        const weAlreadyHaveGroupSize = !!(parsed.facts && parsed.facts.groupSize && parsed.facts.groupSize.value != null)
+          || haveGS;
+  
+        if (!weAlreadyHaveGroupSize) {
+          // Only set the awaiting flag if we *don't* already have a group size
+          if (this.askedForGroupSize(replyText)) {
+            conversation.awaiting = { fact: 'groupSize', sinceMessageId: null };
+          }
+        } else {
+          // If model output (or our capture) includes groupSize, ensure awaiting is cleared
+          if (conversation.awaiting?.fact === 'groupSize') {
+            conversation.awaiting = { fact: null, sinceMessageId: null };
+          }
+        }
+  
+        return parsed;
+      }
+    } catch (error) {
+      console.error('Error in LLM reducer:', error);
+    }
+  
+    // ---------- Fallback ----------
+    return {
+      facts: {},
+      assumptions,
+      blocking_questions: ["I need more information to help plan your trip"],
+      safe_transition: false,
+      reply: "Tell me more about what you're looking for and I'll help you plan an amazing bachelor party!",
+      intent_type: "general_question"
+    };
   }
-
-  // Fallback response
-  return {
-    facts: {},
-    assumptions: [],
-    blocking_questions: ["I need more information to help plan your trip"],
-    safe_transition: false,
-    reply: "Tell me more about what you're looking for and I'll help you plan an amazing bachelor party!",
-    intent_type: "general_question"
-  };
-}
-
-
+  
+  
+  parseGroupSizeFromMessage(msg) {
+    if (typeof msg !== 'string') return null;
+    const trimmed = msg.trim().toLowerCase();
+  
+    // Digits only, e.g., "10"
+    const m = trimmed.match(/^\d{1,3}$/);
+    if (m) return parseInt(m[0], 10);
+  
+    // Simple single-word numbers (common cases)
+    const wordsToInt = {
+      one:1, two:2, three:3, four:4, five:5,
+      six:6, seven:7, eight:8, nine:9, ten:10,
+      eleven:11, twelve:12, thirteen:13, fourteen:14, fifteen:15,
+      sixteen:16, seventeen:17, eighteen:18, nineteen:19, twenty:20
+    };
+    if (/^[a-z]+$/.test(trimmed) && trimmed in wordsToInt) {
+      return wordsToInt[trimmed];
+    }
+  
+    return null;
+  }
+  
+  // Heuristic: did the assistant ask for group size?
+  askedForGroupSize(text) {
+    if (typeof text !== 'string') return false;
+    const t = text.toLowerCase();
+    return /how many\s+(people|guys)\b/i.test(t)
+        || /how many.*\b(in|are in)\s+(your|the)\s+(group|party)\b/i.test(t)
+        || /\bwhat(?:'s| is)\s+(the\s+)?group\s+size\b/i.test(t)
+        || /\bhow big is\s+(your|the)\s+group\b/i.test(t);
+  }
 
   // Update conversation facts based on LLM output
   updateConversationFacts(conversation, factUpdates) {

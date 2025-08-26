@@ -121,16 +121,26 @@ body {
 
 .chat-messages {
     flex: 1;
-    padding: 20px;
+    padding: 20px 20px 80px 20px;
     overflow-y: auto;
     background: transparent;
     display: flex;
     flex-direction: column;
     align-items: center;
+    scroll-behavior: smooth;
+    /* Hide scrollbar for WebKit browsers (Chrome, Safari, Edge) */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* Internet Explorer 10+ */
+}
+
+/* Hide scrollbar for WebKit browsers */
+.chat-messages::-webkit-scrollbar {
+    display: none;
 }
 
 .message {
-    margin-bottom: 15px;
+    margin-bottom: 20px;
     border-radius: 12px;
     max-width: 720px;
     width: 100%;
@@ -138,6 +148,10 @@ body {
     opacity: 0;
     transform: translateY(20px);
     animation: fadeInMessage 0.4s ease-out 0.5s forwards;
+}
+
+.message:last-child {
+    margin-bottom: 40px;
 }
 
 @keyframes fadeInMessage {

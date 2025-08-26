@@ -235,7 +235,7 @@ class ChatInterface {
             this.inputContainer.classList.add('slide-down');
             // Ensure messages are not hidden behind the fixed input
             if (this.messagesContainer) {
-                this.messagesContainer.style.paddingBottom = '120px';
+                this.messagesContainer.style.paddingBottom = '200px';
             }
             // Remove centered state after transition completes
             const onTransitionEnd = (e) => {
@@ -308,7 +308,11 @@ class ChatInterface {
         messageDiv.className = `message ${sender}-message`;
         messageDiv.textContent = content;
         this.messagesContainer.appendChild(messageDiv);
-        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        
+        // Scroll to bottom with a small delay to ensure the message is rendered
+        setTimeout(() => {
+            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        }, 50);
     }
 
     showLoadingIndicator() {
@@ -328,7 +332,11 @@ class ChatInterface {
         `;
         
         this.messagesContainer.appendChild(loadingDiv);
-        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        
+        // Scroll to bottom with a small delay to ensure the loading indicator is rendered
+        setTimeout(() => {
+            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        }, 50);
     }
 
     hideLoadingIndicator() {
