@@ -206,6 +206,19 @@ class ChatInterface {
         // Show welcome message if this is the first user message
         if (isFirstMessage) {
             this.addMessage("On a scale from 1 - 10, how insane do you want your bachelor party to be?", 'bot');
+            
+            // Hide hero text on first message
+            const heroText = document.getElementById('hero-text');
+            if (heroText) {
+                heroText.style.opacity = '0';
+                heroText.style.transform = 'translateY(-30px)';
+                // Remove element after animation completes
+                setTimeout(() => {
+                    if (heroText && heroText.parentNode) {
+                        heroText.remove();
+                    }
+                }, 400);
+            }
         }
 
         // Add user message to chat
