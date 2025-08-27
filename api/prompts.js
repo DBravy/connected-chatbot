@@ -2,265 +2,241 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Paths
-const PROMPTS_DIR = path.resolve(__dirname, '../prompts');
-const BACKUPS_DIR = path.resolve(__dirname, '../prompts/backups');
-const DEFAULTS_DIR = path.resolve(__dirname, '../prompts/defaults');
+// ---------- Config ----------
+const PROMPTS_DIR   = path.resolve(__dirname, '../prompts');
+const BACKUPS_DIR   = path.resolve(__dirname, '../prompts/backups');   // used only for FS fallback
+const DEFAULTS_DIR  = path.resolve(__dirname, '../prompts/defaults');
 
-// Available prompt files
 const PROMPT_FILES = [
   'reducer.user.txt',
-  'general.user.txt', 
+  'general.user.txt',
   'options.user.txt',
   'selector.system.txt',
   'response.user.txt',
-  'wildness.user.txt'
+  'wildness.user.txt',
 ];
 
-// Ensure directories exist
+// Supabase (DB-first)
+const hasSupabase =
+  !!process.env.SUPABASE_URL && !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase = hasSupabase
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false },
+    })
+  : null;
+
+// ---------- Small helpers ----------
 async function ensureDirectories() {
+  // Only useful for FS fallback/local dev
   await fs.mkdir(PROMPTS_DIR, { recursive: true });
   await fs.mkdir(BACKUPS_DIR, { recursive: true });
   await fs.mkdir(DEFAULTS_DIR, { recursive: true });
 }
 
-// Create backup of current prompt with optional commit message
-// api/prompts.js
-async function createBackup(filename, content, commitMessage = null) {
-  const now = new Date();
-  const iso = now.toISOString();                        // one source of truth
-  const stamp = iso.replace(/[:.]/g, '-');              // safe for filenames
-  const backupFilename = `${filename}.${stamp}.bak`;
-  const backupPath = path.join(BACKUPS_DIR, backupFilename);
-
-  const metadata = {
-    filename,
-    timestamp: iso,                                     // exactly matches backupFilename’s instant
-    backupFilename,
-    commitMessage: commitMessage || null,
-    contentLength: content.length,
-    contentHash: generateSimpleHash(content),
-  };
-
-  await fs.writeFile(backupPath, content, 'utf8');
-  const metadataPath = path.join(BACKUPS_DIR, `${backupFilename}.meta`);
-  await fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2), 'utf8');
+function okFilename(name) {
+  return PROMPT_FILES.includes(name);
 }
 
-
-// Generate a simple hash for content comparison
 function generateSimpleHash(content) {
+  // Tiny non-crypto hash; keeps response shape compatible
   let hash = 0;
   for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
+    hash = (hash * 31 + content.charCodeAt(i)) | 0;
   }
-  return hash.toString(36);
+  return (hash >>> 0).toString(16);
 }
 
-// Get comprehensive version history for a file
+async function readDefault(filename) {
+  const p = path.join(DEFAULTS_DIR, filename);
+  return fs.readFile(p, 'utf8');
+}
 
-async function getVersionHistory(filename) {
-  try {
-    const all = await fs.readdir(BACKUPS_DIR);
+// ---------- DB layer ----------
+async function dbGetPrompt(filename) {
+  const { data, error } = await supabase
+    .from('prompts')
+    .select('content, updated_at')
+    .eq('filename', filename)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
 
-    // Get all backups for this file, sorted newest first
-    const fileBackups = all
-      .filter(name => name.startsWith(filename + '.') && name.endsWith('.bak'))
-      .map(name => {
-        const m = name.match(/\.(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.bak$/);
-        if (!m) return null;
-        const ts = m[1].replace(
-          /T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/,
-          'T$1:$2:$3.$4Z'
-        );
-        return { filename: name, timestamp: ts };
-      })
-      .filter(Boolean)
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // Newest first
+async function dbUpsertPrompt(filename, content) {
+  const { error } = await supabase
+    .from('prompts')
+    .upsert({ filename, content, updated_at: new Date().toISOString() }, { onConflict: 'filename' });
+  if (error) throw error;
+}
 
-    // Add metadata and assign version numbers (newest gets highest version number)
-    const versionsWithMetadata = await Promise.all(
-      fileBackups.map(async (backup, idx) => {
-        const metadataPath = path.join(BACKUPS_DIR, `${backup.filename}.meta`);
-        try {
-          const metadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
-          return { 
-            ...backup, 
-            ...metadata, 
-            version: fileBackups.length - idx  // Newest backup gets highest version number
-          };
-        } catch {
-          return {
-            ...backup,
-            commitMessage: null,
-            contentLength: null,
-            contentHash: null,
-            version: fileBackups.length - idx,
-          };
-        }
-      })
-    );
+async function dbInsertBackup(filename, content, commitMessage = null) {
+  const { error } = await supabase
+    .from('prompt_backups')
+    .insert({ filename, content, commit_message: commitMessage });
+  if (error) throw error;
+}
 
-    // Add current version at the top
+async function dbGetHistory(filename) {
+  const { data, error } = await supabase
+    .from('prompt_backups')
+    .select('id, created_at, commit_message, content')
+    .eq('filename', filename)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+async function dbGetBackupByTimestamp(filename, isoTs) {
+  const { data, error } = await supabase
+    .from('prompt_backups')
+    .select('id, filename, content, commit_message, created_at')
+    .eq('filename', filename)
+    .eq('created_at', isoTs) // Expecting exact ISO string from UI
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
+// ---------- FS fallback (local/dev) ----------
+async function fsReadCurrent(filename) {
+  const p = path.join(PROMPTS_DIR, filename);
+  return fs.readFile(p, 'utf8');
+}
+
+async function fsWriteCurrent(filename, content) {
+  const p = path.join(PROMPTS_DIR, filename);
+  await fs.writeFile(p, content, 'utf8');
+}
+
+async function fsCreateBackup(filename, content, commitMessage = null) {
+  const iso = new Date().toISOString();
+  const stamp = iso.replace(/[:.]/g, '-');
+  const backupFilename = `${filename}.${stamp}.bak`;
+  const backupPath = path.join(BACKUPS_DIR, backupFilename);
+  await fs.writeFile(backupPath, content, 'utf8');
+  // store commit message in sidecar .meta for parity
+  await fs.writeFile(
+    path.join(BACKUPS_DIR, `${backupFilename}.meta`),
+    JSON.stringify({ filename, timestamp: iso, commitMessage, contentLength: content.length, contentHash: generateSimpleHash(content) }, null, 2),
+    'utf8'
+  );
+}
+
+async function fsListHistory(filename) {
+  const all = await fs.readdir(BACKUPS_DIR);
+  const matches = all.filter(n => n.startsWith(filename + '.') && n.endsWith('.bak'));
+  const out = [];
+  for (const bak of matches) {
+    const m = bak.match(/\.(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.bak$/);
+    if (!m) continue;
+    const ts = m[1].replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z/, 'T$1:$2:$3.$4Z');
+    const content = await fs.readFile(path.join(BACKUPS_DIR, bak), 'utf8');
+    let commitMessage = null;
     try {
-      const currentPath = path.join(PROMPTS_DIR, filename);
-      const currentContent = await fs.readFile(currentPath, 'utf8');
-      const currentVersion = {
-        filename: 'current',
-        timestamp: new Date().toISOString(),
-        commitMessage: 'Current version',
-        contentLength: currentContent.length,
-        contentHash: generateSimpleHash(currentContent),
-        version: versionsWithMetadata.length + 1, // Current gets highest version number
-        isCurrent: true,
-      };
-      
-      // Return with current first, then historical versions in chronological order (newest first)
-      return [currentVersion, ...versionsWithMetadata];
+      const meta = JSON.parse(await fs.readFile(path.join(BACKUPS_DIR, `${bak}.meta`), 'utf8'));
+      commitMessage = meta.commitMessage ?? null;
+    } catch {}
+    out.push({ created_at: ts, commit_message: commitMessage, content });
+  }
+  // newest first
+  out.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return out;
+}
+
+async function fsGetBackupByTimestamp(filename, isoTs) {
+  const stamp = isoTs.replace(/[:.]/g, '-');
+  const bak = `${filename}.${stamp}.bak`;
+  const p = path.join(BACKUPS_DIR, bak);
+  try {
+    const content = await fs.readFile(p, 'utf8');
+    return { filename, content, commit_message: null, created_at: isoTs };
+  } catch {
+    return null;
+  }
+}
+
+// ---------- Uniform storage API (DB first, FS fallback) ----------
+async function storageRead(filename) {
+  if (hasSupabase) {
+    const row = await dbGetPrompt(filename);
+    if (row) return { content: row.content, source: 'db' };
+    // fall back to default on first read
+    try {
+      const content = await readDefault(filename);
+      return { content, source: 'default-file' };
     } catch {
-      // No current file, just return historical versions
-      return versionsWithMetadata;
+      return { content: `# ${filename}\n# This prompt template is not yet configured.`, source: 'empty' };
     }
-  } catch {
-    return [];
-  }
-}
-
-// Get content of a specific version
-async function getVersionContent(filename, versionTimestamp) {
-  if (versionTimestamp === 'current') {
-    const filePath = path.join(PROMPTS_DIR, filename);
-    return await fs.readFile(filePath, 'utf8');
-  }
-
-  const stamp = versionTimestamp.replace(/[:.]/g, '-').replace(/Z$/, 'Z');
-  const backupPath = path.join(BACKUPS_DIR, `${filename}.${stamp}.bak`);
-  try {
-    return await fs.readFile(backupPath, 'utf8');
-  } catch (e) {
-    // Fallback: look up by metadata timestamp
-    const entries = await fs.readdir(BACKUPS_DIR);
-    for (const entry of entries) {
-      if (entry.startsWith(`${filename}.`) && entry.endsWith('.bak.meta')) {
-        const meta = JSON.parse(await fs.readFile(path.join(BACKUPS_DIR, entry), 'utf8'));
-        if (meta.timestamp === versionTimestamp && meta.backupFilename) {
-          return await fs.readFile(path.join(BACKUPS_DIR, meta.backupFilename), 'utf8');
-        }
-      }
-    }
-    throw e;
-  }
-}
-
-// Revert to a specific version
-async function revertToVersion(filename, versionTimestamp) {
-  // Get the content of the target version
-  const targetContent = await getVersionContent(filename, versionTimestamp);
-  
-  // Create backup of current version before reverting
-  try {
-    const currentPath = path.join(PROMPTS_DIR, filename);
-    const currentContent = await fs.readFile(currentPath, 'utf8');
-    await createBackup(filename, currentContent, `Pre-revert backup (reverting to ${versionTimestamp})`);
-  } catch {
-    // Current file doesn't exist, no backup needed
-  }
-  
-  // Write the target version as current
-  const filePath = path.join(PROMPTS_DIR, filename);
-  await fs.writeFile(filePath, targetContent, 'utf8');
-  
-  return { content: targetContent, timestamp: versionTimestamp };
-}
-
-// Get backups for a specific file (simplified for backward compatibility)
-async function getBackupsForFile(filename) {
-  const history = await getVersionHistory(filename);
-  return history.slice(1); // Exclude current version
-}
-
-// Get the latest backup content
-async function getLatestBackupContent(filename) {
-  const backups = await getBackupsForFile(filename);
-  if (backups.length === 0) {
-    throw new Error('No backups available');
-  }
-  
-  const latestBackup = backups[0];
-  const content = await getVersionContent(filename, latestBackup.timestamp);
-  
-  return {
-    content,
-    timestamp: latestBackup.timestamp
-  };
-}
-
-// Batch update multiple prompts
-async function batchUpdatePrompts(updates, commitMessage = null) {
-  const results = [];
-  const errors = [];
-  
-  for (const [filename, content] of Object.entries(updates)) {
+  } else {
     try {
-      if (!PROMPT_FILES.includes(filename)) {
-        errors.push({ filename, error: 'Invalid prompt file' });
-        continue;
-      }
-      
-      if (typeof content !== 'string') {
-        errors.push({ filename, error: 'Content must be a string' });
-        continue;
-      }
-      
-      const filePath = path.join(PROMPTS_DIR, filename);
-      
-      // Create backup of existing content
+      const content = await fsReadCurrent(filename);
+      return { content, source: 'fs' };
+    } catch {
       try {
-        const existingContent = await fs.readFile(filePath, 'utf8');
-        await createBackup(filename, existingContent, commitMessage);
+        const content = await readDefault(filename);
+        return { content, source: 'default-file' };
       } catch {
-        // File doesn't exist yet, no backup needed
+        return { content: `# ${filename}\n# This prompt template is not yet configured.`, source: 'empty' };
       }
-      
-      // Write new content
-      await fs.writeFile(filePath, content, 'utf8');
-      
-      results.push({
-        filename,
-        success: true,
-        timestamp: new Date().toISOString()
-      });
-      
-    } catch (error) {
-      errors.push({
-        filename,
-        error: error.message
-      });
     }
   }
-  
-  return { results, errors };
 }
 
+async function storageWrite(filename, newContent, commitMessage = null) {
+  // backup old
+  const existing = await storageMaybeCurrent(filename);
+  if (existing) {
+    if (hasSupabase) {
+      await dbInsertBackup(filename, existing, commitMessage);
+    } else {
+      await fsCreateBackup(filename, existing, commitMessage);
+    }
+  }
+  // write new
+  if (hasSupabase) {
+    await dbUpsertPrompt(filename, newContent);
+  } else {
+    await fsWriteCurrent(filename, newContent);
+  }
+}
+
+async function storageMaybeCurrent(filename) {
+  if (hasSupabase) {
+    const row = await dbGetPrompt(filename);
+    return row?.content ?? null;
+  } else {
+    try { return await fsReadCurrent(filename); } catch { return null; }
+  }
+}
+
+async function storageHistory(filename) {
+  if (hasSupabase) return dbGetHistory(filename);
+  return fsListHistory(filename);
+}
+
+async function storageBackupByTimestamp(filename, isoTs) {
+  if (hasSupabase) return dbGetBackupByTimestamp(filename, isoTs);
+  return fsGetBackupByTimestamp(filename, isoTs);
+}
+
+// ---------- HTTP handler ----------
 export default async function handler(req, res) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Credentials', true);
+  // CORS (keeps your prompts.html working locally or on Vercel)
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Requested-With, Accept');
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
-  await ensureDirectories();
+  await ensureDirectories(); // harmless on Vercel; used locally
 
   const { query, method } = req;
   const filename = query.filename;
@@ -269,327 +245,168 @@ export default async function handler(req, res) {
 
   try {
     switch (method) {
-      case 'GET':
+      // ---------------- GET ----------------
+      case 'GET': {
         if (filename && action === 'history') {
-          // Get version history for a specific prompt
-          if (!PROMPT_FILES.includes(filename)) {
-            return res.status(404).json({ error: 'Prompt file not found' });
-          }
-          
-          const history = await getVersionHistory(filename);
-          res.json({ 
-            filename,
-            versions: history,
-            totalVersions: history.length
-          });
-          
-        } else if (filename && action === 'version' && version) {
-          // Get content of a specific version
-          if (!PROMPT_FILES.includes(filename)) {
-            return res.status(404).json({ error: 'Prompt file not found' });
-          }
-          
-          try {
-            const content = await getVersionContent(filename, version);
-            res.json({ 
-              filename, 
-              version,
-              content 
-            });
-          } catch (error) {
-            res.status(404).json({ error: 'Version not found' });
-          }
-          
-        } else if (filename && action === 'backups') {
-          // Get backup information for a specific prompt (backward compatibility)
-          if (!PROMPT_FILES.includes(filename)) {
-            return res.status(404).json({ error: 'Prompt file not found' });
-          }
-          
-          const backups = await getBackupsForFile(filename);
-          res.json({ 
-            hasBackups: backups.length > 0,
-            backupCount: backups.length,
-            latestBackup: backups.length > 0 ? new Date(backups[0].timestamp).toLocaleString() : null
-          });
-          
-        } else if (filename) {
-          // Get specific prompt
-          if (!PROMPT_FILES.includes(filename)) {
-            return res.status(404).json({ error: 'Prompt file not found' });
-          }
-          
-          const filePath = path.join(PROMPTS_DIR, filename);
-          try {
-            const content = await fs.readFile(filePath, 'utf8');
-            res.json({ filename, content });
-          } catch (error) {
-            // If file doesn't exist, try to get from defaults
-            try {
-              const defaultPath = path.join(DEFAULTS_DIR, filename);
-              const content = await fs.readFile(defaultPath, 'utf8');
-              res.json({ filename, content, isDefault: true });
-            } catch {
-              res.status(404).json({ error: 'Prompt file not found' });
-            }
-          }
-        } else {
-          // Get all prompts
-          const prompts = {};
-          
-          for (const file of PROMPT_FILES) {
-            try {
-              const filePath = path.join(PROMPTS_DIR, file);
-              const content = await fs.readFile(filePath, 'utf8');
-              prompts[file] = content;
-            } catch {
-              // Try defaults if main file doesn't exist
-              try {
-                const defaultPath = path.join(DEFAULTS_DIR, file);
-                const content = await fs.readFile(defaultPath, 'utf8');
-                prompts[file] = content;
-              } catch {
-                prompts[file] = `# ${file}\n# This prompt template is not yet configured.`;
-              }
-            }
-          }
-          
-          res.json({ prompts });
-        }
-        break;
+          if (!okFilename(filename)) return res.status(404).json({ error: 'Prompt file not found' });
+          const historyRows = await storageHistory(filename);
 
-      case 'PUT':
-        // Update specific prompt or batch update
+          // Format like your UI expects
+          const versions = historyRows.map((r, idx) => ({
+            filename: 'backup',
+            timestamp: r.created_at,
+            commitMessage: r.commit_message ?? null,
+            contentLength: r.content.length,
+            contentHash: generateSimpleHash(r.content),
+            version: historyRows.length - idx,  // older get smaller numbers
+            isCurrent: false,
+          }));
+
+          // Prepend a "current" pseudo-version
+          const current = await storageRead(filename);
+          versions.unshift({
+            filename: 'current',
+            timestamp: new Date().toISOString(),
+            commitMessage: 'Current version',
+            contentLength: current.content.length,
+            contentHash: generateSimpleHash(current.content),
+            version: versions.length + 1,
+            isCurrent: true,
+          });
+
+          return res.json({ filename, versions, totalVersions: versions.length });
+        }
+
+        if (filename && action === 'version' && version) {
+          if (!okFilename(filename)) return res.status(404).json({ error: 'Invalid prompt file' });
+          const bak = await storageBackupByTimestamp(filename, version);
+          if (!bak) return res.status(404).json({ error: 'Version not found' });
+          return res.json({ filename, timestamp: bak.created_at, content: bak.content });
+        }
+
+        if (filename && action === 'backups') {
+          if (!okFilename(filename)) return res.status(404).json({ error: 'Prompt file not found' });
+          const hist = await storageHistory(filename);
+          return res.json({
+            hasBackups: hist.length > 0,
+            backupCount: hist.length,
+            latestBackup: hist[0]?.created_at ?? null,
+          });
+        }
+
+        if (filename) {
+          if (!okFilename(filename)) return res.status(404).json({ error: 'Invalid prompt file' });
+          const { content, source } = await storageRead(filename);
+          return res.json({ content, source });
+        }
+
+        // no filename => return all prompts object
+        const entries = await Promise.all(
+          PROMPT_FILES.map(async f => {
+            const { content } = await storageRead(f);
+            return [f, content];
+          })
+        );
+        return res.json({ prompts: Object.fromEntries(entries) });
+      }
+
+      // ---------------- PUT ----------------
+      case 'PUT': {
         if (action === 'batch') {
-          // Batch update multiple prompts
-          const { updates, commitMessage } = req.body;
-          
+          const { updates, commitMessage } = req.body || {};
           if (!updates || typeof updates !== 'object') {
             return res.status(400).json({ error: 'Updates object is required' });
           }
-          
-          const result = await batchUpdatePrompts(updates, commitMessage);
-          
-          if (result.errors.length > 0) {
-            res.status(207).json({ // 207 Multi-Status
-              message: 'Batch update completed with some errors',
-              results: result.results,
-              errors: result.errors
-            });
-          } else {
-            res.json({
-              success: true,
-              message: `Successfully updated ${result.results.length} prompt(s)`,
-              results: result.results
-            });
-          }
-          
-        } else if (filename) {
-          // Update specific prompt
-          if (!PROMPT_FILES.includes(filename)) {
-            return res.status(404).json({ error: 'Invalid prompt file' });
-          }
-          
-          const { content, commitMessage } = req.body;
-          if (typeof content !== 'string') {
-            return res.status(400).json({ error: 'Content must be a string' });
-          }
-          
-          const filePath = path.join(PROMPTS_DIR, filename);
-          
-          // Create backup of existing content
-          try {
-            const existingContent = await fs.readFile(filePath, 'utf8');
-            await createBackup(filename, existingContent, commitMessage);
-          } catch {
-            // File doesn't exist yet, no backup needed
-          }
-          
-          // Write new content
-          await fs.writeFile(filePath, content, 'utf8');
-          
-          res.json({ 
-            success: true, 
-            message: 'Prompt updated successfully',
-            filename,
-            timestamp: new Date().toISOString()
-          });
-        } else {
-          res.status(400).json({ error: 'Filename is required for single updates' });
-        }
-        break;
-
-      case 'POST':
-        if (action === 'revert' && filename && version) {
-          // Revert to specific version
-          if (!PROMPT_FILES.includes(filename)) {
-            return res.status(404).json({ error: 'Invalid prompt file' });
-          }
-          
-          try {
-            const result = await revertToVersion(filename, version);
-            res.json({ 
-              success: true, 
-              message: `Reverted to version ${version}`,
-              content: result.content,
-              revertedToTimestamp: result.timestamp
-            });
-          } catch (error) {
-            res.status(500).json({ 
-              error: 'Failed to revert to version',
-              details: error.message 
-            });
-          }
-          
-        } else if (action === 'reset' && filename) {
-          // Reset to default
-          if (!PROMPT_FILES.includes(filename)) {
-            return res.status(404).json({ error: 'Invalid prompt file' });
-          }
-          
-          const filePath = path.join(PROMPTS_DIR, filename);
-          const defaultPath = path.join(DEFAULTS_DIR, filename);
-          
-          try {
-            // Backup current version
-            try {
-              const currentContent = await fs.readFile(filePath, 'utf8');
-              await createBackup(filename, currentContent, 'Pre-reset backup');
-            } catch {
-              // No current file to backup
-            }
-            
-            // Copy from defaults
-            const defaultContent = await fs.readFile(defaultPath, 'utf8');
-            await fs.writeFile(filePath, defaultContent, 'utf8');
-            
-            res.json({ 
-              success: true, 
-              message: 'Prompt reset to default',
-              content: defaultContent 
-            });
-          } catch (error) {
-            res.status(500).json({ 
-              error: 'Failed to reset prompt',
-              details: error.message 
-            });
-          }
-          
-        } else if (action === 'undo' && filename) {
-          // Undo to previous version (backward compatibility)
-          if (!PROMPT_FILES.includes(filename)) {
-            return res.status(404).json({ error: 'Invalid prompt file' });
-          }
-          
-          try {
-            const filePath = path.join(PROMPTS_DIR, filename);
-            
-            // Get current content to backup before undo
-            let currentContent = '';
-            try {
-              currentContent = await fs.readFile(filePath, 'utf8');
-            } catch {
-              // File doesn't exist
-            }
-            
-            // Get the latest backup
-            const backup = await getLatestBackupContent(filename);
-            
-            // Write the backup content as the current content
-            await fs.writeFile(filePath, backup.content, 'utf8');
-            
-            // If we had current content, create a backup of it 
-            if (currentContent) {
-              await createBackup(filename, currentContent, 'Pre-undo backup');
-            }
-            
-            res.json({ 
-              success: true, 
-              message: 'Changes undone successfully',
-              content: backup.content,
-              restoredFrom: new Date(backup.timestamp).toLocaleString()
-            });
-          } catch (error) {
-            res.status(500).json({ 
-              error: 'Failed to undo changes',
-              details: error.message 
-            });
-          }
-          
-        } else if (action === 'batch-reset') {
-          // Reset multiple prompts to defaults
-          const { filenames } = req.body;
-          
-          if (!filenames || !Array.isArray(filenames)) {
-            return res.status(400).json({ error: 'Filenames array is required' });
-          }
-          
           const results = [];
           const errors = [];
-          
-          for (const fname of filenames) {
+
+          for (const [file, content] of Object.entries(updates)) {
+            if (!okFilename(file)) {
+              errors.push({ file, error: 'Invalid prompt file' });
+              continue;
+            }
             try {
-              if (!PROMPT_FILES.includes(fname)) {
-                errors.push({ filename: fname, error: 'Invalid prompt file' });
-                continue;
-              }
-              
-              const filePath = path.join(PROMPTS_DIR, fname);
-              const defaultPath = path.join(DEFAULTS_DIR, fname);
-              
-              // Backup current version if it exists
-              try {
-                const currentContent = await fs.readFile(filePath, 'utf8');
-                await createBackup(fname, currentContent, 'Pre-batch-reset backup');
-              } catch {
-                // No current file to backup
-              }
-              
-              // Copy from defaults
-              const defaultContent = await fs.readFile(defaultPath, 'utf8');
-              await fs.writeFile(filePath, defaultContent, 'utf8');
-              
-              results.push({
-                filename: fname,
-                success: true,
-                timestamp: new Date().toISOString()
-              });
-              
-            } catch (error) {
-              errors.push({
-                filename: fname,
-                error: error.message
-              });
+              await storageWrite(file, String(content), commitMessage ?? null);
+              results.push({ file, success: true });
+            } catch (e) {
+              errors.push({ file, error: e.message });
             }
           }
-          
-          if (errors.length > 0) {
-            res.status(207).json({
-              message: 'Batch reset completed with some errors',
-              results,
-              errors
-            });
-          } else {
-            res.json({
-              success: true,
-              message: `Successfully reset ${results.length} prompt(s) to defaults`,
-              results
-            });
+
+          if (errors.length) {
+            return res.status(207).json({ message: 'Batch update completed with some errors', results, errors });
           }
-          
-        } else {
-          res.status(400).json({ error: 'Invalid action' });
+          return res.json({ success: true, message: 'Batch update completed', results });
         }
-        break;
+
+        if (!okFilename(filename)) return res.status(404).json({ error: 'Invalid prompt file' });
+
+        const { content, commitMessage } = req.body || {};
+        if (typeof content !== 'string') return res.status(400).json({ error: '`content` must be a string' });
+
+        await storageWrite(filename, content, commitMessage ?? null);
+
+        return res.json({
+          success: true,
+          message: 'Prompt updated successfully',
+          filename,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // ---------------- POST ----------------
+      case 'POST': {
+        if (action === 'revert' && filename && version) {
+          if (!okFilename(filename)) return res.status(404).json({ error: 'Invalid prompt file' });
+
+          const bak = await storageBackupByTimestamp(filename, version);
+          if (!bak) return res.status(404).json({ error: 'Version not found' });
+
+          // Backup current before reverting (preserves undo)
+          const current = await storageMaybeCurrent(filename);
+          if (current) {
+            if (hasSupabase) await dbInsertBackup(filename, current, `auto-backup before revert -> ${version}`);
+            else await fsCreateBackup(filename, current, `auto-backup before revert -> ${version}`);
+          }
+
+          // Write reverted content
+          if (hasSupabase) await dbUpsertPrompt(filename, bak.content);
+          else await fsWriteCurrent(filename, bak.content);
+
+          return res.json({
+            success: true,
+            message: `Reverted to version ${version}`,
+            content: bak.content,
+            revertedToTimestamp: bak.created_at,
+          });
+        }
+
+        if (action === 'reset' && filename) {
+          if (!okFilename(filename)) return res.status(404).json({ error: 'Invalid prompt file' });
+
+          const def = await readDefault(filename).catch(() => null);
+          if (!def) return res.status(404).json({ error: 'No default exists for this file' });
+
+          const current = await storageMaybeCurrent(filename);
+          if (current) {
+            if (hasSupabase) await dbInsertBackup(filename, current, 'auto-backup before reset');
+            else await fsCreateBackup(filename, current, 'auto-backup before reset');
+          }
+
+          if (hasSupabase) await dbUpsertPrompt(filename, def);
+          else await fsWriteCurrent(filename, def);
+
+          return res.json({ success: true, message: 'Prompt reset to default', content: def });
+        }
+
+        return res.status(400).json({ error: 'Invalid action' });
+      }
 
       default:
-        res.status(405).json({ error: 'Method not allowed' });
+        return res.status(405).json({ error: 'Method not allowed' });
     }
   } catch (error) {
-    console.error('Prompts API error:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message 
-    });
+    console.error('[Prompts API]', error);
+    return res.status(500).json({ error: 'Internal server error', details: String(error?.message || error) });
   }
 }
