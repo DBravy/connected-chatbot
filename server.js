@@ -13,6 +13,9 @@ import OpenAI from 'openai';
 
 dotenv.config();
 
+const STARTED_AT = new Date().toISOString();
+console.log('[BOOT]', { cwd: process.cwd(), file: import.meta.url });
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -44,6 +47,30 @@ app.use((req, res, next) => {
     );
   });
   next();
+});
+
+app.get('/__whoami', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    pid: process.pid,
+    startedAt: STARTED_AT,
+    file: import.meta.url,
+    aiHandler: 'ai-prompt-modifier',
+    version: 'qna-2025-08-27-1'
+  });
+});
+
+app.post('/api/ai-prompt-modifier', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('X-Handler-Version', 'qna-2025-08-27-1');
+  return aiPromptModifierHandler(req, res);
+});
+
+// Optional: keep old clients from 404ing
+app.post('/api/ai-codebase-assistant', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.set('X-Handler-Version', 'qna-2025-08-27-1');
+  return aiPromptModifierHandler(req, res);
 });
 
 const chatHandler = new ChatHandler();
@@ -145,6 +172,9 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.post('/api/ai-codebase-assistant', (req, res) => {
+  return aiPromptModifierHandler(req, res);
+});
 // Prompts API endpoints
 // Get all prompts
 app.get('/api/prompts', async (req, res) => {

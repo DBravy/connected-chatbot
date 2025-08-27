@@ -3,480 +3,375 @@ import dotenv from 'dotenv';
 import OpenAI from 'openai';
 dotenv.config();
 
+const HANDLER_VERSION = 'qna-2025-08-27-1';
+
 function getOpenAI() {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      'Missing OPENAI_API_KEY. Add it to your environment or .env file.'
-    );
-  }
+  if (!apiKey) throw new Error('Missing OPENAI_API_KEY. Add it to your environment or .env file.');
   return new OpenAI({ apiKey });
 }
 
-// System understanding of the Connected bachelor party planning system
-const SYSTEM_KNOWLEDGE = `
-You are an expert AI prompt engineer with deep knowledge of the Connected bachelor party planning system. Here's how the system works:
-
-## SYSTEM ARCHITECTURE:
-[Previous architecture description remains the same...]
-
-## SURGICAL EDITING PRINCIPLES:
-
-### CRITICAL RULES FOR ALL MODIFICATIONS:
-1. **PRESERVE STRUCTURE**: Never rewrite entire prompts unless absolutely necessary
-2. **TARGETED CHANGES ONLY**: Modify only the specific sections that need to change
-3. **NO META-HEADERS**: Never add "MODIFIED PROMPT:" or similar headers
-4. **TEMPLATE VARIABLE SAFETY**: All \${variable} syntax must remain exactly unchanged
-5. **MINIMAL FOOTPRINT**: Make the smallest change that achieves the desired behavior
-6. **VERSION AWARENESS**: Always create meaningful commit messages that describe the changes
-
-### GOOD MODIFICATION EXAMPLES:
-- User wants "more casual tone" → Add specific casual language guidelines to existing tone section
-- User wants "less pushy sales" → Modify existing sales language, don't rewrite entire response logic
-- User wants "different question flow" → Adjust specific conversation flow rules, preserve overall structure
-
-### BAD MODIFICATION EXAMPLES:
-- Rewriting entire prompt files for small tone changes
-- Adding system headers or meta-information to prompts
-- Changing template variables or breaking JSON schemas
-- Making cosmetic changes that don't address the user's request
-
-### MODIFICATION TYPES (Use these specific categories):
-- **targeted_insertion**: Add new content to a specific location
-- **targeted_replacement**: Replace specific text with new text
-- **targeted_removal**: Remove specific problematic content
-- **section_enhancement**: Add guidelines to existing sections
-
-### PRECISION REQUIREMENTS:
-When analyzing changes, specify:
-- Exact section to modify (e.g. "TONE GUIDELINES section", "line 23-25")
-- Precise text to find (for replacements)
-- Exact new content to add/replace
-- Why this specific change achieves the user's goal
-- A meaningful commit message describing the change
-
-Your job is to understand what the user wants to change about their chatbot's behavior and provide surgical, targeted modifications to achieve that goal with minimal disruption.
-`;
-
-// Updated analysis prompt template
-const ANALYSIS_PROMPT_TEMPLATE = `
-SURGICAL MODIFICATION ANALYSIS
-
-Current Prompts: [prompt summaries]
-User Request: "[user message]"
-
-ANALYSIS FRAMEWORK:
-1. What specific behavior needs to change?
-2. Which prompt file(s) control this behavior?  
-3. What is the minimum change needed?
-4. Where exactly should the change be made?
-5. What commit message best describes this change?
-
-RESPONSE FORMAT:
-{
-  "needsChanges": boolean,
-  "response": "I'll make targeted changes to [specific sections] to [specific behavior change]. This will [explain expected outcome].",
-  "commitMessage": "Brief description of what this change accomplishes",
-  "changes": [
-    {
-      "promptFile": "[filename]",
-      "reason": "[why this specific file needs modification]",
-      "modifications": [
-        {
-          "type": "targeted_insertion|targeted_replacement|targeted_removal|section_enhancement",
-          "description": "[precise description of the surgical change]",
-          "target_section": "[exact section identifier - be specific]",
-          "search_text": "[exact text to find, if replacing]",
-          "replacement_text": "[exact replacement text]"
-        }
-      ]
-    }
-  ]
+// Heuristic scrubber: remove meta like “No changes needed…”
+function sanitize(answer) {
+  const META_PATTERNS = [
+    /no changes needed/gi,
+    /does not (?:require|need) (?:any )?changes?/gi,
+    /seems to seek clarification rather than (?:a )?modification/gi,
+    /the existing prompts already/gi,
+    /no update to the prompt files/gi
+  ];
+  let out = answer;
+  for (const re of META_PATTERNS) {
+    // drop any sentence containing these phrases
+    out = out
+      .split(/\n+/)
+      .filter(line => !re.test(line))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+  // If we scrubbed too much, fall back to original
+  if (!out) out = answer;
+  return out;
 }
 
-VALIDATION CHECKLIST:
-☐ Changes are surgical and targeted
-☐ No complete prompt rewrites  
-☐ Template variables preserved
-☐ Structure maintained
-☐ Specific sections identified
-☐ Clear behavior outcome predicted
-☐ Meaningful commit message provided
+function buildSystemMessage() {
+  // Lock the persona: Q&A ONLY.
+  return [
+    {
+      role: 'system',
+      content:
+        [
+          'You are the Connected codebase **Q&A** assistant.',
+          'Your ONLY job is to answer technical questions about the code and architecture.',
+          'DO NOT discuss whether prompts need changes. DO NOT classify the request.',
+          'NEVER write phrases like “No changes needed” or talk about modifying prompts.',
+          'Answer directly. If helpful, reference specific files, functions, and flows.'
+        ].join(' ')
+    }
+  ];
+}
+
+function buildUserMessage({ userMessage, currentPrompts }) {
+  // Keep enough context to answer questions about the system,
+  // without inviting “prompt editing” behavior.
+  const promptNames = Object.keys(currentPrompts || {});
+  const promptSummary =
+    promptNames.length
+      ? `Available prompt files (for reference only): ${promptNames.join(', ')}.`
+      : 'No prompt files provided in the request.';
+  const instructions = [
+    'Answer the user clearly and directly.',
+    'If they ask “what does X do?”, explain X precisely and cite where in the system it’s implemented.',
+    'If code needs to be referenced, quote short, relevant snippets only.'
+  ].join(' ');
+
+  return {
+    role: 'user',
+    content:
+      `User question: "${userMessage}". ${promptSummary} ${instructions}`
+  };
+}
+
+
+// System understanding - now focused on explaining rather than modifying
+const SYSTEM_KNOWLEDGE = `
+You are an expert AI assistant that helps clients understand the Connected bachelor party planning system. Your role is to answer questions about the codebase, explain how the system works, and help clients understand the prompt templates without them needing to contact the developer.
+
+## SYSTEM ARCHITECTURE:
+
+### Core Components:
+1. **Chat Interface** (public/index.html) - The main user-facing chat interface where customers interact with the bot
+2. **Chat Handler** (api/chatHandler.js) - Core conversation engine that manages state and routing
+3. **Prompt Templates** - Six specialized AI prompts that control different aspects of conversation
+4. **Service Catalog** - JSON data files containing venue, activity, and service information
+5. **Prompt Management Interface** (prompts.html) - Admin interface for viewing and understanding prompts
+
+### How the System Works:
+
+#### Conversation Flow:
+1. User sends a message through the chat interface
+2. ChatHandler receives the message and determines conversation state
+3. Based on state, appropriate prompt template is selected and sent to OpenAI
+4. AI response is processed and formatted
+5. Response is sent back to user with appropriate UI elements
+
+#### State Management:
+- **INITIAL**: Starting state, gathering basic info
+- **GATHERING_FACTS**: Collecting party details (dates, group size, preferences)
+- **SELECTING_OPTIONS**: AI chooses appropriate services based on preferences
+- **PRESENTING_OPTIONS**: Shows customized itinerary to user
+- **COMPLETE**: Conversation finished, collecting contact info
+
+### Prompt Templates Explained:
+
+#### reducer.user.txt
+- **Purpose**: Core conversation processor and intent classifier
+- **Function**: Takes user messages and converts them into structured data (dates, preferences, wildness level)
+- **Key Features**: 
+  - Extracts facts from natural language
+  - Determines conversation flow
+  - Identifies when enough info is collected
+  - Maintains conversational context
+
+#### wildness.user.txt
+- **Purpose**: Handles initial wildness level responses
+- **Function**: Creates engaging responses when users select their party intensity level (1-10)
+- **Key Features**:
+  - Matches enthusiasm to selected level
+  - Sets appropriate tone for rest of conversation
+  - Uses emoji and language that reflects chosen intensity
+  - Builds excitement for the planning process
+
+#### general.user.txt
+- **Purpose**: Handles general questions about completed itineraries
+- **Function**: Answers followup questions after itinerary is presented
+- **Key Features**:
+  - Provides details about specific venues/activities
+  - Handles pricing questions
+  - Explains logistics and timing
+  - Maintains helpful, informative tone
+
+#### options.user.txt
+- **Purpose**: Lists available service options
+- **Function**: Shows what's available when users want to see all options
+- **Key Features**:
+  - Organizes services by category
+  - Provides brief descriptions
+  - Shows pricing information
+  - Helps users understand choices
+
+#### selector.system.txt
+- **Purpose**: AI logic for choosing optimal services
+- **Function**: Analyzes user preferences and selects best matching venues/activities
+- **Key Features**:
+  - Matches wildness level to appropriate venues
+  - Considers group size and logistics
+  - Balances different activity types
+  - Creates cohesive itinerary flow
+
+#### response.user.txt
+- **Purpose**: Creates natural language itinerary presentations
+- **Function**: Takes selected services and presents them as engaging narrative
+- **Key Features**:
+  - Formats itinerary in easy-to-read structure
+  - Adds contextual descriptions
+  - Includes timing and logistics
+  - Maintains excitement and energy
+
+### Technical Details:
+
+#### Template Variables:
+The prompts use \${variable} syntax for dynamic content insertion:
+- \${conversationHistory} - Previous messages in conversation
+- \${facts} - Collected party details
+- \${services} - Available venues and activities
+- \${selectedOptions} - AI-chosen itinerary items
+
+#### Service Selection Algorithm:
+1. Filters services by group size compatibility
+2. Scores each service based on wildness level match
+3. Ensures variety (mix of day/night activities)
+4. Considers logical flow and proximity
+5. Validates budget constraints if provided
+
+#### Version Control:
+- All prompt changes are backed up automatically
+- Version history shows who changed what and when
+- Can revert to any previous version if needed
+- Commit messages explain reasoning for changes
+
+### Common Questions Answered:
+
+**Q: How does the bot know what venues to recommend?**
+A: The selector.system.txt prompt contains logic that matches user preferences (wildness level, interests) with venue attributes in the service catalog.
+
+**Q: Can the bot handle custom requests?**
+A: Yes, the reducer.user.txt prompt extracts any specific requests and the selector considers them when choosing services.
+
+**Q: How does conversation flow work?**
+A: The ChatHandler manages states. It starts in INITIAL, moves to GATHERING_FACTS as info comes in, then to SELECTING_OPTIONS when enough is collected.
+
+**Q: What happens if a user asks something off-topic?**
+A: The reducer.user.txt prompt is designed to gently redirect while still being helpful. It acknowledges the question but guides back to party planning.
+
+**Q: How are prices calculated?**
+A: Each service in the catalog has pricing info. The system doesn't calculate totals automatically but presents individual prices for transparency.
+
+**Q: Can prompts be changed without breaking the system?**
+A: Yes, as long as the \${template} variables and JSON response formats are preserved. The system is designed to be flexible.
+
+## YOUR ROLE:
+- Answer questions clearly and helpfully
+- Explain technical concepts in simple terms
+- Provide specific examples when helpful
+- Reference the relevant files or prompts when answering
+- Help clients understand both WHAT the system does and WHY it works that way
 `;
 
+// Question answering template
+const QA_PROMPT_TEMPLATE = `
+Current Prompts Content: [provided for reference if user asks about specific prompt content]
+
+User Question: "[user message]"
+
+ANALYSIS:
+1. What is the user asking about?
+2. Which parts of the system are relevant?
+3. What level of technical detail is appropriate?
+4. Are there any misconceptions to clarify?
+
+Provide a clear, helpful answer that:
+- Directly addresses their question
+- References specific files/prompts when relevant
+- Includes examples if helpful
+- Explains both what and why
+- Suggests related topics they might want to know about
+
+Keep the tone friendly and professional. Remember, you're helping clients understand what they've purchased without needing to bother the developer.
+`;
+
+
 export default async function handler(req, res) {
-  // CORS headers
+  // CORS
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Handler-Version', HANDLER_VERSION);
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
-
-  try {
-    const { message, currentPrompts, previewMode = true } = req.body;
-    
-    if (!message || !currentPrompts) {
-      res.status(400).json({ error: 'Missing required fields' });
-      return;
-    }
-
-    // Analyze the user's request and prepare changes
-    const result = await analyzeAndModifyPrompts(message, currentPrompts, previewMode);
-    
-    res.json(result);
-  } catch (error) {
-    console.error('AI Prompt Modifier error:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      details: error.message 
-    });
-  }
-}
-
-// Replace the existing validation logic with this improved version
-function validateTemplateVariables(originalContent, modifiedContent, promptFile) {
-  // Extract variables and get unique sets
-  const originalVariables = [...new Set((originalContent.match(/\$\{[^}]+\}/g) || []))].sort();
-  const modifiedVariables = [...new Set((modifiedContent.match(/\$\{[^}]+\}/g) || []))].sort();
-  
-  // Check if all original variables are still present
-  const missingVariables = originalVariables.filter(v => !modifiedVariables.includes(v));
-  const addedVariables = modifiedVariables.filter(v => !originalVariables.includes(v));
-  
-  if (missingVariables.length > 0) {
-    console.error(`ERROR: Missing template variables in ${promptFile}:`, missingVariables);
-    throw new Error(`Template variables removed from ${promptFile}: ${missingVariables.join(', ')}`);
-  }
-  
-  if (addedVariables.length > 0) {
-    console.warn(`WARNING: New template variables added to ${promptFile}:`, addedVariables);
-    // You might want to allow this or throw an error depending on your needs
-  }
-  
-  // Check for duplicate variables (count occurrences)
-  const originalCount = {};
-  const modifiedCount = {};
-  
-  (originalContent.match(/\$\{[^}]+\}/g) || []).forEach(v => {
-    originalCount[v] = (originalCount[v] || 0) + 1;
-  });
-  
-  (modifiedContent.match(/\$\{[^}]+\}/g) || []).forEach(v => {
-    modifiedCount[v] = (modifiedCount[v] || 0) + 1;
-  });
-  
-  // Log any significant increases in variable usage
-  for (const [variable, newCount] of Object.entries(modifiedCount)) {
-    const originalUsage = originalCount[variable] || 0;
-    if (newCount > originalUsage + 1) { // Allow one extra usage
-      console.warn(`WARNING: Variable ${variable} usage increased significantly in ${promptFile} (was ${originalUsage}, now ${newCount})`);
-    }
-  }
-  
-  return true;
-}
-
-// Update your analyzeAndModifyPrompts function to use this:
-async function analyzeAndModifyPrompts(userMessage, currentPrompts, previewMode = true) {
-  const analysis = await analyzeUserRequest(userMessage, currentPrompts);
-  
-  if (!analysis.needsChanges) {
-    return {
-      response: analysis.response,
-      modifiedPrompts: null,
-      commitMessage: null
-    };
-  }
-  
-  const modifiedPrompts = {};
-  
-  for (const change of analysis.changes) {
-    const { promptFile, modifications } = change;
-    
-    if (currentPrompts[promptFile]) {
-      const originalContent = currentPrompts[promptFile];
-      const modifiedContent = await applyModificationsToPrompt(
-        originalContent,
-        modifications,
-        promptFile
-      );
-      
-      // Use improved validation
-      validateTemplateVariables(originalContent, modifiedContent, promptFile);
-      
-      modifiedPrompts[promptFile] = modifiedContent;
-    }
-  }
-  
-  return {
-    response: analysis.response,
-    modifiedPrompts: Object.keys(modifiedPrompts).length > 0 ? modifiedPrompts : null,
-    commitMessage: analysis.commitMessage || null,
-    previewMode
-  };
-}
-
-function tryParseJSON(s) {
-  if (!s) return null;
-  try { return JSON.parse(s); } catch { return null; }
-}
-
-async function analyzeUserRequest(userMessage, currentPrompts) {
-  const prompt = `${SYSTEM_KNOWLEDGE}
-
-CURRENT PROMPTS SUMMARY:
-${Object.keys(currentPrompts).map(file => `${file}: ${currentPrompts[file].substring(0, 200)}...`).join('\n\n')}
-
-USER REQUEST: "${userMessage}"
-
-CRITICAL ANALYSIS RULES:
-- Only suggest changes if they're actually needed
-- Make SURGICAL modifications, not complete rewrites
-- Preserve all template variables (\${variable}) and structure
-- Focus on the specific behavior change requested
-- Avoid making cosmetic or unnecessary changes
-- Create a meaningful commit message that describes the change
-
-Analyze the request and produce a JSON object with this exact shape:
-
-{
-  "needsChanges": boolean,
-  "response": string (a clear explanation of what will be changed and why),
-  "commitMessage": string (brief description of the change for version history),
-  "changes": [
-    {
-      "promptFile": "reducer.user.txt" | "general.user.txt" | "options.user.txt" | "selector.system.txt" | "response.user.txt",
-      "reason": string (why this file needs to be modified),
-      "modifications": [
-        {
-          "type": "tone_change" | "logic_change" | "content_addition" | "content_removal" | "format_change",
-          "description": string (what specific change will be made),
-          "target_section": string | null (which part of the prompt to modify),
-          "new_content": string | null (any new content to add)
-        }
-      ]
-    }
-  ]
-}
-
-IMPORTANT: Be surgical and precise. Only change what's necessary for the requested behavior modification.
-
-Rules:
-- Return ONLY valid JSON, no prose.
-- Keep the object small and concise.
-- Omit "changes" or use an empty array if none are needed.
-- The "response" should clearly explain what changes will be made in user-friendly language.
-- The "commitMessage" should be a brief, descriptive summary suitable for version history.
-`;
+  const { message: userMessage, currentPrompts } = req.body || {};
+  if (!userMessage) return res.status(400).json({ error: 'Missing "message" in body' });
 
   const openai = getOpenAI();
 
   try {
+    const messages = [
+      ...buildSystemMessage(),
+      buildUserMessage({ userMessage, currentPrompts })
+    ];
+
     const response = await openai.chat.completions.create({
-      model: "gpt-4-turbo",  // Using gpt-4-turbo as fallback since gpt-5 might not be available
-      messages: [
-        {
-          role: "system",
-          content: "You are an expert prompt engineer. Respond ONLY with valid JSON as specified. Focus on explaining changes clearly and providing meaningful commit messages."
-        },
-        { role: "user", content: prompt }
-      ],
-      response_format: { type: "json_object" },
-      max_completion_tokens: 4096
+      model: process.env.OPENAI_MODEL || 'gpt-4o', // or 'gpt-4o-mini' if you prefer
+      temperature: 0.2,
+      max_tokens: 1200,
+      messages
     });
 
-    const choice = response.choices?.[0];
-    const message = choice?.message;
+    let answer = (response.choices?.[0]?.message?.content || '').trim();
+    answer = sanitize(answer);
 
-    // Parse JSON content directly
-    const parsed = tryParseJSON(message?.content);
-    if (parsed) return parsed;
-
-    // Legacy fallbacks (if you later reintroduce tools)
-    if (message?.tool_calls?.length) {
-      const tc = message.tool_calls.find(t => t.function?.arguments);
-      const args = tc?.function?.arguments;
-      const parsedTC = tryParseJSON(args);
-      if (parsedTC) return parsedTC;
-    }
-    if (message?.function_call?.arguments) {
-      const parsedFC = tryParseJSON(message.function_call.arguments);
-      if (parsedFC) return parsedFC;
-    }
-
-    // Last resort: helpful error that surfaces finish_reason
-    const fr = choice?.finish_reason || "unknown";
-    return {
-      needsChanges: false,
-      response:
-        fr === "length"
-          ? "I hit the output limit before I could finish analyzing your request. Please try again or break it into smaller parts."
-          : "I couldn't parse the analysis response. Please try rephrasing your request.",
+    return res.json({
+      response: answer,
+      modifiedPrompts: null,
       commitMessage: null,
-      changes: []
-    };
+      needsChanges: false,
+      mode: 'qna',
+      handlerVersion: HANDLER_VERSION
+    });
+
   } catch (error) {
     console.error('OpenAI API Error:', error);
-    if (error.code === 'model_not_found') {
-      // Try with gpt-4 as fallback
-      try {
-        const response = await openai.chat.completions.create({
-          model: "gpt-4",
-          messages: [
-            {
-              role: "system",
-              content: "You are an expert prompt engineer. Respond ONLY with valid JSON as specified. Focus on explaining changes clearly and providing meaningful commit messages."
-            },
-            { role: "user", content: prompt }
-          ],
-          response_format: { type: "json_object" },
-          max_tokens: 4000
-        });
-
-        const choice = response.choices?.[0];
-        const message = choice?.message;
-        const parsed = tryParseJSON(message?.content);
-        if (parsed) return parsed;
-      } catch (fallbackError) {
-        console.error('Fallback model also failed:', fallbackError);
-      }
-      
-      throw new Error('GPT models not available. Please ensure you have access to GPT-4 or newer models.');
-    } else if (error.code === 'insufficient_quota') {
-      throw new Error('OpenAI API quota exceeded. Please check your billing settings.');
-    } else if (error.code === 'unsupported_value') {
-      throw new Error(`Unsupported parameter value: ${error.message}`);
-    } else {
-      throw error;
-    }
+    return res.status(500).json({
+      error: 'OpenAI request failed',
+      details: error?.message || String(error),
+      handlerVersion: HANDLER_VERSION
+    });
   }
 }
 
-async function applyModificationsToPrompt(originalPrompt, modifications, promptFile) {
-  const modificationPrompt = `You are making SURGICAL modifications to a prompt template. Your goal is to make the minimum necessary changes while preserving all functionality.
+async function answerUserQuestion(userMessage, currentPrompts) {
+  const prompt = `${SYSTEM_KNOWLEDGE}
 
-ORIGINAL PROMPT:
-${originalPrompt}
+CURRENT PROMPTS AVAILABLE FOR REFERENCE:
+${Object.keys(currentPrompts).map(file => `${file}: [${currentPrompts[file].length} characters of configuration]`).join('\n')}
 
-MODIFICATIONS TO APPLY:
-${modifications.map(mod => `- ${mod.type}: ${mod.description}
-  Target: ${mod.target_section || 'Not specified'}
-  ${mod.search_text ? `Search for: "${mod.search_text}"` : ''}
-  ${mod.replacement_text ? `Replace with: "${mod.replacement_text}"` : ''}`).join('\n\n')}
+USER QUESTION: "${userMessage}"
 
-CRITICAL REQUIREMENTS FOR SURGICAL EDITING:
+Please provide a helpful, clear answer to the user's question about the Connected bachelor party planning system. Focus on explaining how things work and why design decisions were made. If the question is about a specific prompt, you can reference its purpose and function.
 
-1. PRESERVE EVERYTHING UNCHANGED except what's specifically targeted
-2. NEVER add meta-headers like "MODIFIED PROMPT:" or similar
-3. NEVER rewrite entire sections unless explicitly required
-4. Keep ALL template variables (\${variable}) exactly as they are
-5. Maintain the exact same structure, spacing, and formatting
-6. Only modify the specific lines/sections mentioned in the modifications
-7. If adding new content, insert it naturally into the existing structure
-8. If replacing text, find the exact match and replace only that text
+Remember:
+- You're helping them understand their system, not modify it
+- Use clear, non-technical language when possible
+- Provide specific examples when helpful
+- Reference the relevant components/files
+- Suggest what else they might want to know
 
-EXAMPLES OF GOOD SURGICAL CHANGES:
-
-Request: "Add tone guideline to avoid exclamation points"
-BAD: Rewrite entire TONE section
-GOOD: Add one line "- Avoid excessive exclamation points" to existing tone guidelines
-
-Request: "Make conversation more casual" 
-BAD: Rewrite entire prompt with casual language
-GOOD: Add specific casual language guidelines to existing instruction section
-
-YOUR OUTPUT SHOULD BE:
-- The original prompt with only the targeted changes applied
-- No extra headers, comments, or meta-information
-- Identical formatting and structure to the original
-- Only the specific modifications requested, nothing more
-
-Return the modified prompt now:`;
+Response:`;
 
   const openai = getOpenAI();
-  
+
   try {
     const response = await openai.chat.completions.create({
       model: "gpt-4-turbo",
       messages: [
         {
           role: "system",
-          content: `You are a surgical prompt editor. Make ONLY the specific changes requested. Preserve everything else exactly. Never add meta-headers or rewrite unnecessarily.`
+          content: "You are a helpful AI assistant explaining a bachelor party planning chatbot system to clients who have purchased it. Be friendly, clear, and thorough in your explanations. Help them understand both the technical aspects and the business logic."
         },
-        { role: "user", content: modificationPrompt }
+        { role: "user", content: prompt }
       ],
-      max_completion_tokens: 3000
+      max_tokens: 2000,
+      temperature: 0.7
     });
 
-    const modifiedPrompt = response.choices[0].message.content.trim();
+    const answer = response.choices[0].message.content.trim();
     
-    // Validation: Check that the result doesn't contain meta-headers
-    if (modifiedPrompt.includes('MODIFIED PROMPT:') || 
-        modifiedPrompt.includes('UPDATED PROMPT:') ||
-        modifiedPrompt.includes('NEW PROMPT:')) {
-      console.warn('AI added meta-headers, attempting to clean...');
-      return cleanMetaHeaders(modifiedPrompt);
-    }
-    
-    return modifiedPrompt;
+    // Return in the same format the frontend expects, but with no modifications
+    return {
+      response: answer,
+      modifiedPrompts: null, // No modifications, just Q&A
+      commitMessage: null,
+      needsChanges: false
+    };
 
   } catch (error) {
-    console.error('Error modifying prompt:', error);
+    console.error('OpenAI API Error:', error);
     
-    // Fallback to GPT-4 with same strict instructions
+    // Try with fallback model
     if (error.code === 'model_not_found') {
-      console.log('Falling back to gpt-4 with surgical instructions...');
-      const response = await openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: `You are a surgical prompt editor for ${promptFile}. Make ONLY the specific changes requested. Preserve everything else exactly. Never add meta-headers.`
-          },
-          { role: "user", content: modificationPrompt }
-        ],
-        max_tokens: 3000
-      });
-      
-      const modifiedPrompt = response.choices[0].message.content.trim();
-      return cleanMetaHeaders(modifiedPrompt);
+      try {
+        const response = await openai.chat.completions.create({
+          model: "gpt-4",
+          messages: [
+            {
+              role: "system",
+              content: "You are a helpful AI assistant explaining a bachelor party planning chatbot system. Be clear and thorough."
+            },
+            { role: "user", content: prompt }
+          ],
+          max_tokens: 2000
+        });
+
+        const answer = response.choices[0].message.content.trim();
+        
+        return {
+          response: answer,
+          modifiedPrompts: null,
+          commitMessage: null,
+          needsChanges: false
+        };
+      } catch (fallbackError) {
+        console.error('Fallback model also failed:', fallbackError);
+        throw new Error('Unable to process your question. Please try again.');
+      }
     }
     
     throw error;
   }
 }
 
-// Helper function to clean meta-headers that AI might add
-function cleanMetaHeaders(prompt) {
-  const lines = prompt.split('\n');
-  const cleanedLines = [];
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    
-    // Skip lines that look like meta-headers
-    if (line.match(/^(MODIFIED|UPDATED|NEW) PROMPT:?/i) ||
-        line.match(/^Here is the modified prompt:?/i) ||
-        line.match(/^Modified version:?/i)) {
-      continue;
-    }
-    
-    // Skip empty lines immediately after meta-headers
-    if (cleanedLines.length === 0 && line.trim() === '') {
-      continue;
-    }
-    
-    cleanedLines.push(line);
-  }
-  
-  return cleanedLines.join('\n');
+// Keep these utility functions even though we're not modifying prompts anymore
+// They might be useful for displaying prompt content in answers
+function tryParseJSON(s) {
+  if (!s) return null;
+  try { return JSON.parse(s); } catch { return null; }
 }
+
+// Remove all modification-related functions since we're just answering questions now
+// The frontend will handle the response appropriately since we're returning
+// modifiedPrompts: null, which means no changes to preview or apply
