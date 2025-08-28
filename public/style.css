@@ -997,6 +997,13 @@ body {
     pointer-events: none;
 }
 
+/* Hide Loved by section on mobile */
+@media (max-width: 768px) {
+    .loved-by-container {
+        display: none;
+    }
+}
+
 .customer-faces {
     display: flex;
     align-items: center;
