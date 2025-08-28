@@ -5,6 +5,50 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bachelor Party Planner Chat</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+    /* Mobile dropdown nav to prevent header overlap */
+    .mobile-nav { display: none; }
+    @media (min-width: 769px) {
+        .mobile-nav { display: none; }
+    }
+    @media (max-width: 768px) {
+        .nav-menu { display: none; }
+        .mobile-nav { display: block; position: absolute; left: 50%; transform: translateX(-50%); margin-left: -8px; }
+        .mobile-nav summary {
+            list-style: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 48px;
+            height: 48px;
+            background: #ffffff;
+            border: 1px solid rgb(226, 226, 226);
+            border-radius: 24px;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
+        }
+        .mobile-nav summary::-webkit-details-marker { display: none; }
+        .mobile-nav .mobile-nav-menu {
+            position: absolute;
+            right: 0;
+            top: calc(100% + 8px);
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(229, 229, 229, 0.6);
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 160px;
+            z-index: 20;
+        }
+        .mobile-nav .nav-btn {
+            width: 100%;
+            justify-content: flex-start;
+        }
+    }
+    </style>
 </head>
 <body>
     <div class="app-container">
@@ -31,6 +75,22 @@
                         <button class="nav-btn">Contact</button>
                     </nav>
                     
+                    <!-- Mobile Menu (visible on small screens) -->
+                    <details class="mobile-nav">
+                        <summary aria-label="Open menu">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 6h18"></path>
+                                <path d="M3 12h18"></path>
+                                <path d="M3 18h18"></path>
+                            </svg>
+                        </summary>
+                        <nav class="mobile-nav-menu" aria-label="Mobile menu">
+                            <button class="nav-btn active">Home</button>
+                            <button class="nav-btn">About</button>
+                            <button class="nav-btn">Contact</button>
+                        </nav>
+                    </details>
+                    
                     <!-- Login Button -->
                     <div class="login-container">
                         <button id="login-button" class="login-btn">Login</button>
@@ -48,7 +108,7 @@
                 
                 <div class="chat-input-container centered" id="chat-input-container">
                     <div class="input-wrapper">
-                        <!-- <div class="input-prompt-text">Plan Your Austin Bachelor Party</div> -->
+                        <div class="input-prompt-text">Plan Your Austin Bachelor Party</div>
                         <textarea id="message-input" rows="1" placeholder="On a scale from 1 - 10, how insane do you want your bachelor party to be?"></textarea>
                         <!-- <div class="input-divider" aria-hidden="true"></div> -->
 
@@ -84,7 +144,7 @@
 
         <div class="social-proof-container" id="social-proof">
             <ul class="social-proof-logos">
-                <li><img src="images/customer_logos/le_journal_de_montreal.svg" alt="Le Journal de MontrÃ©al"></li>
+                <li><img src="images/customer_logos/le_journal_de_montreal.svg" alt="Le Journal de Montréal"></li>
                 <li><img src="images/customer_logos/toronto_sun.svg" alt="Toronto Sun"></li>
                 <li><img src="images/customer_logos/vice.svg" alt="Vice"></li>
                 <li><img src="images/customer_logos/eater.svg" alt="Eater"></li>

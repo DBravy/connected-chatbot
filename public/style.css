@@ -795,7 +795,7 @@ body {
     }
 }
 
-@media (max-width: 768px) {
+@media (min-width: 768px) {
     .app-container {
         flex-direction: column;
         width: 100vw;
@@ -1052,4 +1052,22 @@ body {
 @media (min-width: 768px) {
     .customer-face { width: 48px; height: 48px; }
     .rating-text { font-size: 14px; }
+}
+
+@media (min-width: 769px) {
+    .input-prompt-text {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .hero-text {
+        display: none !important;
+    }
+}
+
+@media (max-width: 768px) {
+    .loved-by-container {
+        display: none !important;
+    }
 }
