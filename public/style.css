@@ -7,7 +7,7 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background-color: #ffffff;
-    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
 }
 
@@ -48,7 +48,7 @@ body {
 /* Main app container */
 .app-container {
     display: flex;
-    height: 100vh;
+    height: 100dvh;
     width: 100vw;
     margin: 0;
     background: transparent;
@@ -141,15 +141,16 @@ body {
     flex: 1;
     padding: 20px 20px 80px 20px;
     overflow-y: auto;
+    overscroll-behavior: contain;
     background: transparent;
     display: flex;
     flex-direction: column;
     align-items: center;
     scroll-behavior: smooth;
-    /* Hide scrollbar for WebKit browsers (Chrome, Safari, Edge) */
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none; /* Firefox */
-    -ms-overflow-style: none; /* Internet Explorer 10+ */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    touch-action: pan-y;
 }
 
 /* Hide scrollbar for WebKit browsers */
@@ -332,7 +333,6 @@ body {
     backdrop-filter: none !important;
     border-top: none !important;
     z-index: 1000;
-    /* don't transition bottom; it's not used anymore */
     transition: transform 0.6s ease, top 0.6s ease, background 0.3s ease, border-top-color 0.3s ease;
   }
   
@@ -827,6 +827,12 @@ body {
     
     .chat-container {
         height: 100%;
+    }
+
+    /* Improve scrolling behavior on mobile */
+    .chat-messages {
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
     }
 }
 

@@ -1,5 +1,5 @@
 import dotenv from 'dotenv';
-import { ChatHandler } from './lib/chatHandler.js';
+import { ChatHandler } from './api/chatHandler.js';
 
 // Load environment variables
 dotenv.config();

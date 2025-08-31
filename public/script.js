@@ -106,6 +106,12 @@ class ChatInterface {
         // Auto-focus the message input when page loads
         this.messageInput.focus();
         // Don't show welcome message initially - will show after first user message
+
+        // Ensure correct bottom padding for messages on initial load and on resize
+        const adjustPadding = () => this.updateMessagesBottomPadding();
+        window.addEventListener('resize', adjustPadding, { passive: true });
+        window.addEventListener('orientationchange', adjustPadding, { passive: true });
+        requestAnimationFrame(adjustPadding);
     }
 
     setupEventListeners() {
@@ -122,6 +128,8 @@ class ChatInterface {
             const newHeight = Math.min(this.messageInput.scrollHeight, 240);
             this.messageInput.style.height = newHeight + 'px';
             this.messageInput.style.overflowY = this.messageInput.scrollHeight > 240 ? 'auto' : 'hidden';
+            // Keep chat content visible above the input as it grows
+            this.updateMessagesBottomPadding();
         };
         ['input', 'change'].forEach(evt => {
             this.messageInput.addEventListener(evt, autoResize);
@@ -133,6 +141,17 @@ class ChatInterface {
         if (this.toggleButton) {
             this.toggleButton.addEventListener('click', () => this.toggleSidebar());
         }
+
+        // If user manually scrolls up, do not force autoscroll until near bottom again
+        let isUserNearBottom = true;
+        const nearBottomThreshold = 120; // px
+        const handleScroll = () => {
+            const el = this.messagesContainer;
+            const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+            isUserNearBottom = distanceFromBottom < nearBottomThreshold;
+        };
+        this.messagesContainer.addEventListener('scroll', handleScroll, { passive: true });
+        this.isUserNearBottom = () => isUserNearBottom;
     }
 
     toggleSidebar() {
@@ -190,6 +209,8 @@ class ChatInterface {
                 this.lovedByContainer.remove();
                 this.lovedByContainer = null;
             }
+            // After layout changes, fix padding
+            this.updateMessagesBottomPadding();
         }, 800);
     }
 
@@ -217,6 +238,7 @@ class ChatInterface {
                     if (heroText && heroText.parentNode) {
                         heroText.remove();
                     }
+                    this.updateMessagesBottomPadding();
                 }, 400);
             }
         }
@@ -237,6 +259,7 @@ class ChatInterface {
                     if (promptText && promptText.parentNode) {
                         promptText.remove();
                     }
+                    this.updateMessagesBottomPadding();
                 }, 300); // Match the CSS transition duration
             }
         }
@@ -247,14 +270,13 @@ class ChatInterface {
             // Add slide-down state to trigger transition
             this.inputContainer.classList.add('slide-down');
             // Ensure messages are not hidden behind the fixed input
-            if (this.messagesContainer) {
-                this.messagesContainer.style.paddingBottom = '200px';
-            }
+            this.updateMessagesBottomPadding();
             // Remove centered state after transition completes
             const onTransitionEnd = (e) => {
                 if (e.propertyName === 'top' || e.propertyName === 'transform') {
                     this.inputContainer.classList.remove('centered');
                     this.inputContainer.removeEventListener('transitionend', onTransitionEnd);
+                    this.updateMessagesBottomPadding();
                 }
             };
             this.inputContainer.addEventListener('transitionend', onTransitionEnd);
@@ -268,6 +290,7 @@ class ChatInterface {
         // Reset input height after sending
         this.messageInput.style.height = 'auto';
         this.messageInput.style.overflowY = 'hidden';
+        this.updateMessagesBottomPadding();
 
         try {
             // Show loading indicator
@@ -324,7 +347,7 @@ class ChatInterface {
         
         // Scroll to bottom with a small delay to ensure the message is rendered
         setTimeout(() => {
-            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            this.scrollToBottomIfAppropriate();
         }, 50);
     }
 
@@ -348,7 +371,7 @@ class ChatInterface {
         
         // Scroll to bottom with a small delay to ensure the loading indicator is rendered
         setTimeout(() => {
-            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+            this.scrollToBottomIfAppropriate();
         }, 50);
     }
 
@@ -357,6 +380,24 @@ class ChatInterface {
         if (loadingIndicator) {
             loadingIndicator.remove();
         }
+    }
+
+    updateMessagesBottomPadding() {
+        if (!this.messagesContainer || !this.inputContainer) return;
+        const rect = this.inputContainer.getBoundingClientRect();
+        const vh = window.innerHeight || document.documentElement.clientHeight;
+        const inputIsFixedAtBottom = this.inputContainer.classList.contains('slide-down') && !this.inputContainer.classList.contains('centered');
+        const effectiveHeight = inputIsFixedAtBottom ? Math.max(0, vh - rect.top) : 0;
+        const basePadding = 80; // matches initial CSS bottom padding
+        const totalPadding = Math.max(basePadding, Math.ceil(effectiveHeight + 16));
+        this.messagesContainer.style.paddingBottom = totalPadding + 'px';
+    }
+
+    scrollToBottomIfAppropriate() {
+        // Only autoscroll if user is already near the bottom
+        if (this.isUserNearBottom && !this.isUserNearBottom()) return;
+        const el = this.messagesContainer;
+        el.scrollTop = el.scrollHeight;
     }
 
     updateTripSummary() {
