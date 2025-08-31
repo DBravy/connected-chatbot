@@ -1126,88 +1126,162 @@ transformConversationFacts(facts) {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
     
     return Math.max(1, diffDays);
-}
+  }
 
-  async generateItinerary(conversationData) {
-    try {
-      console.log('Generating AI-powered itinerary...');
-      
-      const userPreferences = this.transformConversationData(conversationData)
-      // Get ALL available services (not just 5 types)
-      const allServices = await this.searchAvailableServices(
-        userPreferences.destination,
-        userPreferences.groupSize,
-        userPreferences
+// chatHandler.js
+// chatHandler.js
+async generateItinerary(conversationData) {
+  const DBG = process.env.CONNECTED_DEBUG_LOGS === '1';
+  const log = (...a) => { if (DBG) console.log('[Itinerary]', ...a); };
+
+  // small helper to coerce things like "3 hours" -> 3
+  const toHours = (s) => {
+    if (s == null) return null;
+    const m = String(s).match(/(\d+(?:\.\d+)?)/);
+    return m ? Number(m[1]) : null;
+  };
+
+  try {
+    log('START generateItinerary');
+
+    const userPreferences = this.transformConversationData(conversationData);
+    log('User preferences:', JSON.stringify(userPreferences, null, 2));
+
+    // 1) Fetch all available services (includes rolled-up price_cad/price_usd from DB)
+    const allServices = await this.searchAvailableServices(
+      userPreferences.destination,
+      userPreferences.groupSize,
+      userPreferences
+    );
+    log(`Fetched ${allServices.length} services from searchAvailableServices`);
+    if (DBG) {
+      const sample = allServices.slice(0, 8).map(s => ({
+        id: s.id, name: s.name, type: s.type,
+        price_cad: s.price_cad, price_usd: s.price_usd, dur: s.duration_hours
+      }));
+      log('Sample services (first 8):', sample);
+      const priceStats = {
+        priced: allServices.filter(s => s.price_cad != null || s.price_usd != null).length,
+        total: allServices.length
+      };
+      log('Catalog price coverage:', priceStats);
+    }
+
+    // 2) Keyword enhancement
+    const enhancedServices = await this.enhanceServicesWithKeywords(
+      allServices,
+      userPreferences
+    );
+    log(`After keyword enhancement: ${enhancedServices.length} services`);
+    if (DBG) {
+      const priceStats2 = {
+        priced: enhancedServices.filter(s => s.price_cad != null || s.price_usd != null).length,
+        total: enhancedServices.length
+      };
+      log('Enhanced catalog price coverage:', priceStats2);
+    }
+
+    // 3) By-category snapshot (helps verify selection pool)
+    const servicesByCategory = this.groupServicesByCategory(enhancedServices);
+    if (DBG) {
+      const catSummary = Object.fromEntries(
+        Object.entries(servicesByCategory).map(([k, v]) => [
+          k, { total: v.length, priced: v.filter(s => s.price_cad != null || s.price_usd != null).length }
+        ])
       );
-      
-      // Enhance with keyword-based services
-      const enhancedServices = await this.enhanceServicesWithKeywords(
-        allServices, 
-        userPreferences
+      log('By-category counts (priced/total):', catSummary);
+    }
+
+    // 4) Build each day
+    const itinerary = [];
+    for (let day = 1; day <= userPreferences.duration; day++) {
+      const dayInfo = {
+        dayNumber: day,
+        totalDays: userPreferences.duration,
+        timeSlots: this.getTimeSlotsForDay(day, userPreferences.duration),
+        isFirstDay: day === 1,
+        isLastDay: day === userPreferences.duration
+      };
+
+      log(`\n— Day ${day}/${userPreferences.duration}: selecting services`);
+      const dayPlan = await this.aiSelector.selectOptimalServices(
+        enhancedServices,
+        userPreferences,
+        dayInfo
       );
-      
-      console.log(`Ã°Å¸" Found ${enhancedServices.length} total services to choose from`);
-      
-      // Group services by category for analysis
-      const servicesByCategory = this.groupServicesByCategory(enhancedServices);
-      console.log('Ã°Å¸" Services by category:', Object.keys(servicesByCategory).map(cat => 
-        `${cat}: ${servicesByCategory[cat].length}`
-      ).join(', '));
 
-      // Generate each day using AI
-      const itinerary = [];
-      for (let day = 1; day <= userPreferences.duration; day++) {
-        const dayInfo = {
-          dayNumber: day,
-          totalDays: userPreferences.duration,
-          timeSlots: this.getTimeSlotsForDay(day, userPreferences.duration),
-          isFirstDay: day === 1,
-          isLastDay: day === userPreferences.duration
-        };
-
-        // AI selects optimal services for this day
-        const dayPlan = await this.aiSelector.selectOptimalServices(
-          enhancedServices,
-          userPreferences,
-          dayInfo
+      if (DBG) {
+        log(`[Day ${day}] raw selectedServices from selector:`,
+          (dayPlan.selectedServices || []).map(s => ({
+            serviceId: s.serviceId, serviceName: s.serviceName,
+            timeSlot: s.timeSlot, reason: s.reason
+          }))
         );
-
-        // AI generates engaging response text
-        const responseText = await this.aiResponseGenerator.generateItineraryResponse(
-          dayPlan,
-          dayInfo,
-          userPreferences
-        );
-
-        itinerary.push({
-          day: day,
-          date: this.formatDate(userPreferences.startDate, day - 1),
-          plan: dayPlan,
-          responseText: responseText,
-          services: dayPlan.selectedServices || [],
-          alternatives: dayPlan.alternativeOptions || []
-        });
-        
-        // Only plan one day at a time for now
-        if (day === 1) break;
       }
 
-      return {
-        success: true,
-        itinerary: itinerary,
-        totalServices: enhancedServices.length,
-        categoriesAvailable: Object.keys(servicesByCategory)
+      // === CRITICAL FIX: map catalog prices to the writer's expected keys ===
+      const byId = new Map(enhancedServices.map(s => [String(s.id), s]));
+      const writerSelected = (dayPlan.selectedServices || []).map(s => {
+        const meta = byId.get(String(s.serviceId)) || {};
+        return {
+          // keep original field names expected downstream
+          serviceId: String(s.serviceId),
+          serviceName: s.serviceName,
+          timeSlot: s.timeSlot,
+      
+          // << critical: use price_cad / price_usd >>
+          price_cad: meta.price_cad ?? null,
+          price_usd: meta.price_usd ?? null,
+      
+          duration_hours: meta.duration_hours ?? toHours(s.estimatedDuration),
+          reason: s.reason,
+          groupSuitability: s.groupSuitability
+        };
+      });
+
+      if (DBG) {
+        log(`[Day ${day}] writerSelected (id, name, cad, usd, dur):`,
+          writerSelected.map(x => ({
+            id: x.id, name: x.name, cad: x.cad, usd: x.usd, dur: x.dur
+          }))
+        );
+      }
+
+      // Build the payload the writer expects
+      const enrichedDayPlan = {
+        ...dayPlan,
+        selectedServices: writerSelected
       };
 
-    } catch (error) {
-      console.error('Error generating itinerary:', error);
-      return {
-        success: false,
-        error: error.message,
-        fallback: "Let me manually put together some options for you..."
-      };
+      log(`[Day ${day}] generating response…`);
+      const responseText = await this.aiResponseGenerator.generateItineraryResponse(
+        enrichedDayPlan,
+        dayInfo,
+        userPreferences
+      );
+
+      if (DBG) {
+        log(`[Day ${day}] response preview:`,
+          String(responseText).slice(0, 500).replace(/\n/g, '\\n') + (responseText.length > 500 ? '…' : '')
+        );
+      }
+
+      itinerary.push({
+        dayNumber: day,
+        selectedServices: enrichedDayPlan.selectedServices,
+        text: responseText
+      });
     }
+
+    log('END generateItinerary');
+    return { itinerary, servicesByCategory };
+  } catch (error) {
+    console.error('[Itinerary] ERROR:', error);
+    return { error: 'Failed to generate itinerary' };
   }
+}
+
+
 
   groupServicesByCategory(services) {
     const categories = {};
@@ -1485,6 +1559,19 @@ transformConversationFacts(facts) {
     return activities;
   }
 
+  enrichSelectedWithMeta(selected, allServices) {
+    const byId = new Map((allServices || []).map(s => [String(s.id), s]));
+    return (selected || []).map(s => {
+      const meta = byId.get(String(s.serviceId)) || {};
+      return {
+        ...s,
+        price_cad: s.price_cad ?? meta.price_cad ?? null,
+        price_usd: s.price_usd ?? meta.price_usd ?? null,
+        duration_hours: s.duration_hours ?? meta.duration_hours ?? null
+      };
+    });
+  }
+
   // Generate and present day-by-day itinerary when transitioning to planning
   async generateItineraryPresentation(conversation) {
     const { facts } = conversation;
@@ -1532,11 +1619,16 @@ transformConversationFacts(facts) {
       );
       
       // Store the day plan so it can be saved when user confirms
-      conversation.dayByDayPlanning.currentDayPlan = dayPlan;
+      const enrichedDayPlan = {
+        ...dayPlan,
+        selectedServices: this.enrichSelectedWithMeta(dayPlan.selectedServices, allServices)
+      };
       
+      // Keep the enriched plan in conversation state
+      conversation.dayByDayPlanning.currentDayPlan = enrichedDayPlan;      
       // AI generates engaging response text for Day 1
       const responseText = await this.aiResponseGenerator.generateItineraryResponse(
-        dayPlan,
+        enrichedDayPlan,
         dayInfo,
         userPreferences
       );
@@ -3089,122 +3181,111 @@ selectBestServices(availableServices, wildnessLevel, groupSize) {
   // Search for available services when we transition to planning
 // MODIFIED: Update searchAvailableServices to actually populate conversation.availableServices
 async searchAvailableServices(destination, groupSize, preferences = {}) {
-    console.log(`Ã°Å¸" Searching services for ${destination}, ${groupSize} people...`);
-    
-    // Get ALL service types available in the database
+  console.log(`🔎 Searching services for ${destination}, ${groupSize} people.`);
+
+  const allServiceTypes = [
+    'Restaurant', 'Bar', 'Night Club', 'Daytime', 'Transportation',
+    'Strip Club', 'Package', 'Catering', 'Accommodation'
+  ];
+
+  const allServices = [];
+
+  for (const serviceType of allServiceTypes) {
+    const res = await this.searchServices({
+      city_name: destination,
+      service_type: serviceType,
+      group_size: groupSize,
+      max_results: 10
+    });
+
+    if (res?.services?.length) {
+      allServices.push(
+        ...res.services.map(s => ({
+          ...s,
+          category: serviceType.toLowerCase().replace(/\s+/g, '_')
+        }))
+      );
+    }
+  }
+
+  return allServices;
+}
+
+async searchServicesForConversation(conversation) {
+  const facts = conversation.facts;
+  const destination = facts.destination?.value;
+  const groupSize = facts.groupSize?.value || 8;
+
+  if (!destination) {
+    console.warn('No destination available for service search');
+    conversation.availableServices = [];
+    return [];
+  }
+
+  try {
+    console.log(`🔎 Searching for services in ${destination} for ${groupSize} people.`);
+
     const allServiceTypes = [
       'Restaurant', 'Bar', 'Night Club', 'Daytime', 'Transportation',
       'Strip Club', 'Package', 'Catering', 'Accommodation'
     ];
-    
+
     const allServices = [];
-    
+
     for (const serviceType of allServiceTypes) {
-      const services = await this.searchServices({
+      const res = await this.searchServices({
         city_name: destination,
         service_type: serviceType,
         group_size: groupSize,
         max_results: 10
       });
-      
-      if (services.services && services.services.length > 0) {
-        for (const s of services.services) {
-          allServices.push({
+
+      if (res?.services?.length) {
+        allServices.push(
+          ...res.services.map(s => ({
             ...s,
             category: serviceType.toLowerCase().replace(/\s+/g, '_')
-          });
-        }
+          }))
+        );
       }
     }
-    
-    return allServices;
-  }
 
-  async searchServicesForConversation(conversation) {
-    const facts = conversation.facts;
-    const destination = facts.destination?.value;
-    const groupSize = facts.groupSize?.value || 8;
-    
-    if (!destination) {
-      console.warn('No destination available for service search');
-      return [];
-    }
-    
-    try {
-      console.log(`Ã°Å¸" Searching for services in ${destination} for ${groupSize} people...`);
-      
-      // Get ALL service types available in the database
-      const allServiceTypes = [
-        'Restaurant', 'Bar', 'Night Club', 'Daytime', 'Transportation',
-        'Strip Club', 'Package', 'Catering', 'Accommodation'
-      ];
-      
-      const allServices = [];
-      
-      for (const serviceType of allServiceTypes) {
-        const services = await this.searchServices({
-          city_name: destination,
-          service_type: serviceType,
-          group_size: groupSize,
-          max_results: 10
-        });
-        
-        if (services.services && services.services.length > 0) {
-          allServices.push(...services.services.map(s => ({ 
-            ...s, 
-            category: serviceType.toLowerCase().replace(' ', '_')
-          })));
-        }
-      }
-      
-      // Enhance with keyword-based services
-      const userPreferences = this.transformConversationFacts(facts);
-      const enhancedServices = await this.enhanceServicesWithKeywords(allServices, userPreferences);
-      
-      // Store in conversation for later use
-      conversation.availableServices = enhancedServices;
-      
-      console.log(`Ã¢Å" Found ${enhancedServices.length} total services for conversation`);
-      
-      // Group by category for logging
-      const servicesByCategory = this.groupServicesByCategory(enhancedServices);
-      console.log('Ã°Å¸" Services by category:', Object.keys(servicesByCategory).map(cat => 
-        `${cat}: ${servicesByCategory[cat].length}`
-      ).join(', '));
-      
-      return enhancedServices;
-      
-    } catch (error) {
-      console.error('Error searching services for conversation:', error);
-      conversation.availableServices = [];
-      return [];
-    }
-  }
+    // Optional: enhance with keyword searches based on user preferences
+    const userPreferences = this.transformConversationFacts?.(facts) || {};
+    const enhanced = await this.enhanceServicesWithKeywords(allServices, { ...userPreferences, destination });
 
-  async enhanceServicesWithKeywords(services, userPreferences) {
-    // Extract keywords from user messages
+    conversation.availableServices = enhanced;
+    return enhanced;
+  } catch (err) {
+    console.error('Error searching services for conversation:', err);
+    conversation.availableServices = [];
+    return [];
+  }
+}
+
+  async enhanceServicesWithKeywords(services, userPreferences = {}) {
+    const destination = userPreferences.destination;
+    if (!destination) return services;
+
     const keywords = this.extractKeywords(userPreferences);
-    
-    // Search for services matching specific keywords
     const keywordServices = [];
+
     for (const keyword of keywords) {
-      const results = await this.searchServicesByKeyword({
-        keyword: keyword,
-        city_name: userPreferences.destination
-      });
-      
-      if (results.services) {
-        keywordServices.push(...results.services);
-      }
+      const results = await this.searchServicesByKeyword({ keyword, city_name: destination });
+      if (results?.services?.length) keywordServices.push(...results.services);
     }
-    
-    // Merge and deduplicate services
-    const allServices = [...services, ...keywordServices];
-    const uniqueServices = allServices.filter((service, index, self) => 
-      index === self.findIndex(s => s.id === service.id)
-    );
-    
-    return uniqueServices;
+
+    // Merge & dedupe by id
+    const all = [...services, ...keywordServices];
+    const seen = new Set();
+    const unique = [];
+    for (const s of all) {
+      const id = String(s.id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      unique.push(s);
+    }
+    return unique;
   }
   
   extractKeywords(userInput) {
@@ -3259,174 +3340,222 @@ async searchAvailableServices(destination, groupSize, preferences = {}) {
     }
   }
 
+  firstNumber(...vals) {
+    for (const v of vals) {
+      if (v == null) continue;
+      const n = Number(v);
+      if (!Number.isNaN(n)) return n;
+    }
+    return null;
+  }
+
   async searchServices({ city_name, service_type, group_size, max_results = 10 }) {
     try {
-      // Get city ID
+      // Find city (case-insensitive exact name match)
       const { data: city, error: cityError } = await this.supabase
         .from('cities')
         .select('cit_id')
         .ilike('cit_name', city_name)
         .single();
-
+  
       if (cityError || !city) {
-        return { 
+        return {
           error: `City "${city_name}" not found in our database`,
-          available_cities: await this.getAvailableCityNames()
+          available_cities: await this.getAvailableCityNames?.() || []
         };
       }
-
-      // Search services
+  
+      // Select ALL possibly-populated price fields
+      const selectFields = `
+        ser_id, ser_name, ser_type,
+        ser_description, ser_in_app_description,
+        ser_itinerary_name, ser_itinerary_description,
+        ser_duration_hrs, ser_show_in_app,
+  
+        ser_default_price_cad, ser_minimum_price_cad,
+        ser_default_price_2_cad, ser_minimum_price_2_cad,
+        ser_base_price_cad,
+  
+        ser_default_price_usd, ser_minimum_price_usd,
+        ser_default_price_2_usd, ser_minimum_price_2_usd
+      `;
+  
       let query = this.supabase
         .from('services')
-        .select(`
-          ser_id,
-          ser_name,
-          ser_type,
-          ser_description,
-          ser_itinerary_name,
-          ser_itinerary_description,
-          ser_default_price_cad,
-          ser_default_price_usd,
-          ser_duration_hrs,
-          ser_show_in_app,
-          ser_in_app_description
-        `)
+        .select(selectFields)
         .eq('ser_city_id', city.cit_id)
         .eq('ser_show_in_app', true);
-
-      if (service_type) {
-        query = query.eq('ser_type', service_type);
-      }
-
+  
+      if (service_type) query = query.eq('ser_type', service_type);
       query = query.limit(max_results);
+  
       const { data: services, error } = await query;
-      
       if (error) throw error;
-      
-      return {
-        city: city_name,
-        total_results: services.length,
-        services: services.map(service => ({
-          id: service.ser_id,
-          name: service.ser_name,
-          type: service.ser_type,
-          description: service.ser_description || service.ser_in_app_description,
-          itinerary_name: service.ser_itinerary_name,
-          itinerary_description: service.ser_itinerary_description,
-          price_cad: service.ser_default_price_cad,
-          price_usd: service.ser_default_price_usd,
-          duration_hours: service.ser_duration_hrs
-        }))
-      };
-    } catch (error) {
-      console.error('Error searching services:', error);
-      return { error: "Could not search services" };
+  
+      const mapped = services.map(s => {
+        const price_usd = this.firstNumber(
+          s.ser_default_price_usd, s.ser_minimum_price_usd,
+          s.ser_default_price_2_usd, s.ser_minimum_price_2_usd
+        );
+        const price_cad = this.firstNumber(
+          s.ser_default_price_cad, s.ser_minimum_price_cad,
+          s.ser_default_price_2_cad, s.ser_minimum_price_2_cad,
+          s.ser_base_price_cad
+        );
+  
+        return {
+          id: s.ser_id,
+          name: s.ser_name,
+          type: s.ser_type,
+          description: s.ser_description || s.ser_in_app_description || '',
+          itinerary_name: s.ser_itinerary_name || null,
+          itinerary_description: s.ser_itinerary_description || null,
+          price_cad,
+          price_usd,
+          duration_hours: s.ser_duration_hrs ?? null
+        };
+      });
+  
+      return { city: city_name, total_results: mapped.length, services: mapped };
+    } catch (err) {
+      console.error('Error searching services:', err);
+      return { error: 'Could not search services' };
     }
   }
 
   async getServiceDetails({ service_id }) {
     try {
-      const { data: service, error } = await this.supabase
+      const { data: s, error } = await this.supabase
         .from('services')
-        .select(`
-          *,
-          cities(cit_name)
-        `)
+        .select(`*, cities(cit_name)`)
         .eq('ser_id', service_id)
         .single();
-
-      if (error || !service) {
-        return { error: `Service with ID ${service_id} not found` };
-      }
-
+  
+      if (error || !s) return { error: `Service with ID ${service_id} not found` };
+  
+      const price_usd = this.firstNumber(
+        s.ser_default_price_usd, s.ser_minimum_price_usd,
+        s.ser_default_price_2_usd, s.ser_minimum_price_2_usd
+      );
+      const price_cad = this.firstNumber(
+        s.ser_default_price_cad, s.ser_minimum_price_cad,
+        s.ser_default_price_2_cad, s.ser_minimum_price_2_cad,
+        s.ser_base_price_cad
+      );
+  
       return {
-        id: service.ser_id,
-        name: service.ser_name,
-        type: service.ser_type,
-        description: service.ser_description,
-        in_app_description: service.ser_in_app_description,
-        itinerary_name: service.ser_itinerary_name,
-        itinerary_description: service.ser_itinerary_description,
-        city: service.cities?.cit_name,
+        id: s.ser_id,
+        name: s.ser_name,
+        type: s.ser_type,
+        description: s.ser_description,
+        in_app_description: s.ser_in_app_description,
+        itinerary_name: s.ser_itinerary_name,
+        itinerary_description: s.ser_itinerary_description,
+        city: s.cities?.cit_name,
         pricing: {
-          default_cad: service.ser_default_price_cad,
-          minimum_cad: service.ser_minimum_price_cad,
-          default_usd: service.ser_default_price_usd,
-          minimum_usd: service.ser_minimum_price_usd,
-          base_cad: service.ser_base_price_cad,
-          additional_person_price: service.ser_additional_person_price
+          default_cad: s.ser_default_price_cad,
+          minimum_cad: s.ser_minimum_price_cad,
+          default_usd: s.ser_default_price_usd,
+          minimum_usd: s.ser_minimum_price_usd,
+          base_cad: s.ser_base_price_cad,
+          // New: handy coalesced fields
+          best_usd: price_usd,
+          best_cad: price_cad,
+          additional_person_price: s.ser_additional_person_price
         },
         timing: {
-          duration_hours: service.ser_duration_hrs,
-          default_start_time: service.ser_default_start_time,
-          earliest_start_time: service.ser_earliest_start_time,
-          latest_start_time: service.ser_latest_start_time
+          duration_hours: s.ser_duration_hrs,
+          default_start_time: s.ser_default_start_time,
+          earliest_start_time: s.ser_earliest_start_time,
+          latest_start_time: s.ser_latest_start_time
         },
         logistics: {
-          venue_booking_required: service.ser_venue_booking_required,
-          contractor_booking_required: service.ser_contractor_booking_required,
-          accommodation_address: service.ser_accomodation_address
+          venue_booking_required: s.ser_venue_booking_required,
+          contractor_booking_required: s.ser_contractor_booking_required,
+          accommodation_address: s.ser_accomodation_address
         },
-        image_url: service.ser_image_url
+        image_url: s.ser_image_url
       };
-    } catch (error) {
-      console.error('Error getting service details:', error);
-      return { error: "Could not get service details" };
+    } catch (err) {
+      console.error('Error getting service details:', err);
+      return { error: 'Could not get service details' };
     }
   }
 
-  async searchServicesByKeyword({ keyword, city_name }) {
+  async searchServicesByKeyword({ keyword, city_name, max_results = 20 }) {
     try {
-      let query = this.supabase
-        .from('services')
-        .select(`
-          ser_id,
-          ser_name,
-          ser_type,
-          ser_description,
-          ser_itinerary_name,
-          ser_default_price_cad,
-          ser_show_in_app,
-          cities(cit_name)
-        `)
-        .eq('ser_show_in_app', true);
-
-      if (city_name) {
-        const { data: city } = await this.supabase
-          .from('cities')
-          .select('cit_id')
-          .ilike('cit_name', city_name)
-          .single();
-        
-        if (city) {
-          query = query.eq('ser_city_id', city.cit_id);
-        }
+      const like = `%${keyword}%`;
+  
+      const { data: city, error: cityError } = await this.supabase
+        .from('cities')
+        .select('cit_id')
+        .ilike('cit_name', city_name)
+        .single();
+  
+      if (cityError || !city) {
+        return {
+          error: `City "${city_name}" not found in our database`,
+          available_cities: await this.getAvailableCityNames?.() || []
+        };
       }
-
-      query = query.or(`ser_name.ilike.%${keyword}%,ser_description.ilike.%${keyword}%,ser_itinerary_name.ilike.%${keyword}%`)
-                   .limit(10);
-
-      const { data: services, error } = await query;
-      
+  
+      const selectFields = `
+        ser_id, ser_name, ser_type,
+        ser_description, ser_in_app_description,
+        ser_itinerary_name, ser_itinerary_description,
+        ser_duration_hrs, ser_show_in_app,
+  
+        ser_default_price_cad, ser_minimum_price_cad,
+        ser_default_price_2_cad, ser_minimum_price_2_cad,
+        ser_base_price_cad,
+  
+        ser_default_price_usd, ser_minimum_price_usd,
+        ser_default_price_2_usd, ser_minimum_price_2_usd
+      `;
+  
+      const { data, error } = await this.supabase
+        .from('services')
+        .select(selectFields)
+        .eq('ser_city_id', city.cit_id)
+        .eq('ser_show_in_app', true)
+        .or([
+          `ser_name.ilike.${like}`,
+          `ser_itinerary_name.ilike.${like}`,
+          `ser_description.ilike.${like}`,
+          `ser_in_app_description.ilike.${like}`
+        ].join(','))
+        .limit(max_results);
+  
       if (error) throw error;
-      
-      return {
-        keyword,
-        city: city_name || "all cities",
-        total_results: services.length,
-        services: services.map(service => ({
-          id: service.ser_id,
-          name: service.ser_name,
-          type: service.ser_type,
-          description: service.ser_description,
-          itinerary_name: service.ser_itinerary_name,
-          price_cad: service.ser_default_price_cad,
-          city: service.cities?.cit_name
-        }))
-      };
-    } catch (error) {
-      console.error('Error searching by keyword:', error);
-      return { error: "Could not search by keyword" };
+  
+      const services = (data || []).map(s => {
+        const price_usd = this.firstNumber(
+          s.ser_default_price_usd, s.ser_minimum_price_usd,
+          s.ser_default_price_2_usd, s.ser_minimum_price_2_usd
+        );
+        const price_cad = this.firstNumber(
+          s.ser_default_price_cad, s.ser_minimum_price_cad,
+          s.ser_default_price_2_cad, s.ser_minimum_price_2_cad,
+          s.ser_base_price_cad
+        );
+  
+        return {
+          id: s.ser_id,
+          name: s.ser_name,
+          type: s.ser_type,
+          description: s.ser_description || s.ser_in_app_description || '',
+          itinerary_name: s.ser_itinerary_name || null,
+          itinerary_description: s.ser_itinerary_description || null,
+          price_cad,
+          price_usd,
+          duration_hours: s.ser_duration_hrs ?? null
+        };
+      });
+  
+      return { city: city_name, total_results: services.length, services };
+    } catch (err) {
+      console.error('Error in searchServicesByKeyword:', err);
+      return { error: 'Could not search by keyword' };
     }
   }
 

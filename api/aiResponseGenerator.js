@@ -92,46 +92,64 @@ export class AIResponseGenerator {
     }
   }
 
+  // aiResponseGenerator.js
   async generateItineraryResponse(dayPlan, dayInfo, userPreferences) {
+    const DBG = process.env.CONNECTED_DEBUG_LOGS === '1';
+    const STRIP = process.env.CONNECTED_STRIP_UNGROUNDED_PRICES === '1';
+    const log = (...a) => { if (DBG) console.log('[ItinWriter]', ...a); };
+
     const selectedServices = dayPlan.selectedServices || [];
     const dayTheme = dayPlan.dayTheme || 'Epic bachelor party day';
     const logisticsNotes = dayPlan.logisticsNotes || '';
-  
-    // Figure out if this is the last (or only) day
+
     const totalDays = (userPreferences.duration || dayInfo.totalDays || 1);
     const isLastDay = !!(dayInfo?.isLastDay || (dayInfo?.dayNumber >= totalDays));
     const nextDayNumber = Math.min(totalDays, (dayInfo?.dayNumber || 1) + 1);
-  
+
     const closingInstruction = isLastDay
       ? `7. Closing: ask for approval or tweaks. Do NOT mention another day.`
       : `7. Closing: ask for approval to move to day ${nextDayNumber}.`;
 
-    // PRE-FORMAT THE SELECTED SERVICES to avoid complex template expressions
-    const selectedServicesFormatted = selectedServices.map(service => 
-      `  - ${service.serviceName} (${service.timeSlot})
-  - Why: ${service.reason}
-  - Duration: ${service.estimatedDuration}
-  - Group fit: ${service.groupSuitability}`
-    ).join('\n');
+    // Debug: what did we actually receive?
+    if (DBG) {
+      log('Selected services (received):',
+        selectedServices.map(s => ({
+          id: s.serviceId, name: s.serviceName, slot: s.timeSlot,
+          cad: s.price_cad, usd: s.price_usd, dur: s.duration_hours
+        }))
+      );
+    }
 
-    // Extract values from userPreferences with proper fallbacks
+    // Pre-format with an explicit Price line based only on provided data
+    const selectedServicesFormatted = selectedServices.map(s => {
+      const price =
+        (s?.price_cad != null) ? `$${s.price_cad} CAD`
+        : (s?.price_usd != null) ? `$${s.price_usd} USD`
+        : 'N/A';
+      const duration = s.estimatedDuration || s.duration_hours || 'TBD';
+      return `  - ${s.serviceName} (${s.timeSlot})
+    - Why: ${s.reason}
+    - Duration: ${duration}
+    - Price: ${price}
+    - Group fit: ${s.groupSuitability}`;
+    }).join('\n');
+
+    if (DBG) {
+      log('selectedServicesFormatted:\n' + selectedServicesFormatted);
+    }
+
     const groupSize = userPreferences.groupSize || userPreferences.facts?.groupSize?.value || 8;
     const destination = userPreferences.destination || userPreferences.facts?.destination?.value || 'Unknown';
     const wildnessLevel = userPreferences.wildnessLevel || userPreferences.facts?.wildnessLevel?.value || 5;
     const budget = userPreferences.budget || userPreferences.facts?.budget?.value || 'Not specified';
-    const specialRequests = userPreferences.specialRequests || 
-                           userPreferences.interestedActivities?.join(', ') || 
-                           userPreferences.facts?.interestedActivities?.value?.join(', ') || 
-                           'having a great time';
-
-    // Extract dayInfo values with proper fallbacks
+    const specialRequests = userPreferences.specialRequests ||
+                            userPreferences.interestedActivities?.join(', ') ||
+                            userPreferences.facts?.interestedActivities?.value?.join(', ') ||
+                            'having a great time';
     const dayNumber = dayInfo?.dayNumber || 1;
 
     try {
-      // Load the template from response.user.txt
       const responseTemplate = await this.loadTemplate("response.user.txt");
-      
-      // Render the template with context - all complex expressions pre-computed
       const prompt = this.renderTemplate(responseTemplate, {
         dayNumber,
         totalDays,
@@ -140,31 +158,80 @@ export class AIResponseGenerator {
         specialRequests,
         wildnessLevel,
         budget,
-        selectedServicesFormatted,  // Pre-formatted string instead of complex expression
+        selectedServicesFormatted,  // contains Price lines
         dayTheme,
         logisticsNotes,
         closingInstruction
       });
 
+      // Build a set of grounded price strings we permit
+      const allowedPriceStrings = new Set();
+      selectedServices.forEach(s => {
+        if (s?.price_cad != null) allowedPriceStrings.add(`$${s.price_cad} CAD`);
+        if (s?.price_usd != null) allowedPriceStrings.add(`$${s.price_usd} USD`);
+      });
+      const anyKnownPrice = allowedPriceStrings.size > 0;
+
+      const systemMsg =
+        "You are Connected, a professional bachelor party planner. " +
+        "Never invent prices, estimates, or price ranges. Only mention a price if it is explicitly provided in the user prompt. " +
+        "If a price is not provided, write 'Price: N/A' or omit the price line. " +
+        "Keep a natural, conversational tone. No emojis or emoticons.";
+
+      if (DBG) {
+        log('System message:', systemMsg);
+        log('Prompt (first 800 chars):', prompt.slice(0, 800));
+        log('Allowed price tokens:', Array.from(allowedPriceStrings));
+        log('anyKnownPrice:', anyKnownPrice);
+      }
+
       const response = await this.openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
-          {
-            role: "system",
-            content: "You are Connected, a professional bachelor party planner. Write in a natural, conversational tone without excessive enthusiasm. No emojis or emoticons."
-          },
+          { role: "system", content: systemMsg },
           { role: "user", content: prompt }
         ],
-        temperature: 0.6, // Reduced from 0.8 for more consistent tone
+        temperature: 0.6,
         max_tokens: 300
       });
 
-      return response.choices[0].message.content;
+      let text = response.choices?.[0]?.message?.content || '';
+      if (DBG) {
+        log('Raw LLM text (first 800):', text.slice(0, 800));
+      }
+
+      // Detect any $ amounts the model produced
+      const dollarRegex = /\$[\d][\d,]*(?:\.\d{2})?\s?(?:USD|CAD)?/g;
+      const found = text.match(dollarRegex) || [];
+      const ungrounded = found.filter(tok => !allowedPriceStrings.has(tok));
+      if (DBG) {
+        log('LLM price tokens found:', found);
+        log('Ungrounded price tokens:', ungrounded);
+      }
+
+      // Optional: strip ungrounded prices (opt-in)
+      if (STRIP && ungrounded.length) {
+        log('STRIPPING ungrounded prices from text');
+        ungrounded.forEach(tok => {
+          // Replace stand-alone tokens and common "Price: $XYZ" shapes
+          text = text.replace(new RegExp(tok.replace(/[$]/g, '\\$'), 'g'), 'N/A');
+        });
+      }
+
+      // If no prices are known at all and it still inserted $ amounts, scrub hard
+      if (!anyKnownPrice && found.length > 0) {
+        log('No grounded prices available, but $ amounts were found — scrubbing.');
+        text = text.replace(dollarRegex, 'N/A');
+      }
+
+      if (DBG) log('Final text (first 800):', text.slice(0, 800));
+      return text;
     } catch (error) {
-      console.error('AI response generation error:', error);
+      console.error('[ItinWriter] ERROR:', error);
       return this.generateFallbackResponse(selectedServices, dayInfo, userPreferences);
     }
   }
+
 
   generateFallbackResponse(selectedServices, dayInfo, userPreferences) {
     const totalDays = (userPreferences.duration || dayInfo.totalDays || 1);

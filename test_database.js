@@ -12,26 +12,17 @@ class DatabaseTester {
   async testAllDatabaseOperations() {
     console.log('🔍 BACHELOR PARTY DATABASE ANALYSIS');
     console.log('=====================================\n');
-
+  
     try {
-      // Test 1: Get all available cities
       await this.testAvailableCities();
-      
-      // Test 2: Test service searches for popular cities
       await this.testServicesForPopularCities();
-      
-      // Test 3: Test service type distribution
       await this.testServiceTypeDistribution();
-      
-      // Test 4: Test specific service details
       await this.testServiceDetails();
-      
-      // Test 5: Test keyword searches
       await this.testKeywordSearches();
-      
-      // Test 6: Test the exact flow the chatbot uses
       await this.testChatbotFlow();
-      
+  
+      // NEW: explicitly verify that prices are flowing through after your ChatHandler fix
+      await this.testPriceCoverage();
     } catch (error) {
       console.error('❌ Error during testing:', error);
     }
@@ -58,41 +49,46 @@ class DatabaseTester {
   async testServicesForPopularCities() {
     console.log('🏙️  SERVICES BY CITY');
     console.log('====================');
-    
-    // Test common cities that users might search for
+  
     const testCities = ['Austin', 'Las Vegas', 'Montreal', 'Toronto', 'Miami', 'Nashville'];
-    
+  
     for (const city of testCities) {
       console.log(`\n--- ${city.toUpperCase()} ---`);
-      
+  
       const services = await this.chatHandler.searchServices({
         city_name: city,
         max_results: 20
       });
-      
+  
       if (services.error) {
         console.log(`❌ ${services.error}`);
         continue;
       }
-      
+  
       if (services.services.length === 0) {
         console.log(`⚠️  No services found for ${city}`);
         continue;
       }
-      
+  
       console.log(`✅ Found ${services.services.length} services:`);
-      
+  
       // Group by service type
       const byType = {};
       services.services.forEach(service => {
         if (!byType[service.type]) byType[service.type] = [];
         byType[service.type].push(service);
       });
-      
+  
       Object.entries(byType).forEach(([type, serviceList]) => {
         console.log(`  ${type}: ${serviceList.length} services`);
         serviceList.slice(0, 3).forEach(service => {
-          console.log(`    - ${service.name} ($${service.price_cad || 'N/A'} CAD)`);
+          const priced = this.hasPrice(service);
+          const labelCAD = this.fmtPrice(service.price_cad, 'CAD');
+          const labelUSD = this.fmtPrice(service.price_usd, 'USD');
+          console.log(
+            `    - ${service.name} (${priced ? '💲' : 'N/A'}) ` +
+            `[${labelCAD}${service.price_usd != null ? ' / ' + labelUSD : ''}]`
+          );
         });
       });
     }
@@ -138,42 +134,64 @@ class DatabaseTester {
   async testServiceDetails() {
     console.log('🔍 DETAILED SERVICE ANALYSIS');
     console.log('=============================');
-    
-    // Get a few services to examine in detail
+  
     const austinServices = await this.chatHandler.searchServices({
       city_name: 'Austin',
       max_results: 5
     });
-    
+  
     if (austinServices.error || austinServices.services.length === 0) {
       console.log('❌ No services found for detailed analysis');
       return;
     }
-    
+  
     console.log('Examining first 3 services in detail:\n');
-    
+  
     for (let i = 0; i < Math.min(3, austinServices.services.length); i++) {
       const service = austinServices.services[i];
       console.log(`--- SERVICE ${i + 1}: ${service.name} ---`);
-      
+  
       const details = await this.chatHandler.getServiceDetails({
         service_id: service.id
       });
-      
+  
       if (details.error) {
         console.log(`❌ Error getting details: ${details.error}`);
         continue;
       }
-      
+  
+      // Prefer the rolled-up prices from searchServices, but also show what details exposes
+      const cadFromList = service.price_cad ?? null;
+      const usdFromList = service.price_usd ?? null;
+  
+      const cadFromDetails =
+        details?.pricing?.default_cad ??
+        details?.pricing?.minimum_cad ??
+        details?.pricing?.base_cad ??
+        details?.pricing?.default_2_cad ??
+        details?.pricing?.minimum_2_cad ?? null;
+  
+      const usdFromDetails =
+        details?.pricing?.default_usd ??
+        details?.pricing?.minimum_usd ??
+        details?.pricing?.default_2_usd ??
+        details?.pricing?.minimum_2_usd ?? null;
+  
+      const combinedCAD = cadFromList ?? cadFromDetails;
+      const combinedUSD = usdFromList ?? usdFromDetails;
+  
       console.log(`Type: ${details.type}`);
       console.log(`Description: ${details.description}`);
-      console.log(`Pricing: $${details.pricing.default_cad || 'N/A'} CAD`);
-      console.log(`Duration: ${details.timing.duration_hours || 'N/A'} hours`);
+      console.log(
+        `Pricing: ${this.fmtPricePair(combinedCAD, combinedUSD)} ` +
+        `(list: ${this.fmtPricePair(cadFromList, usdFromList)}, details: ${this.fmtPricePair(cadFromDetails, usdFromDetails)})`
+      );
+      console.log(`Duration: ${details.timing?.duration_hours ?? 'N/A'} hours`);
       console.log(`City: ${details.city}`);
       console.log('');
     }
   }
-
+  
   async testKeywordSearches() {
     console.log('🔎 KEYWORD SEARCH TESTING');
     console.log('==========================');
@@ -277,22 +295,92 @@ class DatabaseTester {
     return services.sort((a, b) => {
       let scoreA = 0;
       let scoreB = 0;
-      
+  
       const aDesc = (a.description || '').toLowerCase();
       const bDesc = (b.description || '').toLowerCase();
-      
+  
       // Boost for relevant keywords
       keywords.forEach(keyword => {
         if (aDesc.includes(keyword)) scoreA += 2;
         if (bDesc.includes(keyword)) scoreB += 2;
       });
-      
-      // Prefer higher prices (often indicates better experience)
-      scoreA += (a.price_cad || 0) * 0.01;
-      scoreB += (b.price_cad || 0) * 0.01;
-      
+  
+      // Prefer higher prices (fallback to USD if CAD missing)
+      const aPrice = (a.price_cad ?? a.price_usd ?? 0);
+      const bPrice = (b.price_cad ?? b.price_usd ?? 0);
+      scoreA += aPrice * 0.01;
+      scoreB += bPrice * 0.01;
+  
       return scoreB - scoreA;
     })[0];
+  }
+
+  hasPrice(svc) {
+    return svc && (svc.price_cad != null || svc.price_usd != null);
+  }
+  
+  fmtPrice(v, currency = 'CAD') {
+    return v != null ? `$${Number(v).toLocaleString()} ${currency}` : 'N/A';
+  }
+  
+  fmtPricePair(cad, usd) {
+    const cadStr = this.fmtPrice(cad, 'CAD');
+    const usdStr = this.fmtPrice(usd, 'USD');
+    if (cad != null && usd != null) return `${cadStr} / ${usdStr}`;
+    if (cad != null) return cadStr;
+    if (usd != null) return usdStr;
+    return 'N/A';
+  }
+  
+  // === ADD this brand-new method ===
+  async testPriceCoverage() {
+    console.log('🧪 PRICE COVERAGE CHECK');
+    console.log('========================');
+  
+    const cities = ['Austin', 'Las Vegas', 'Montreal', 'Toronto', 'Miami', 'Nashville'];
+  
+    for (const city of cities) {
+      const { services = [], error } = await this.chatHandler.searchServices({
+        city_name: city,
+        max_results: 100
+      });
+  
+      if (error) {
+        console.log(`❌ ${city}: Error - ${error}`);
+        continue;
+      }
+  
+      const total = services.length;
+      const pricedAny = services.filter(s => this.hasPrice(s)).length;
+      const cadOnly = services.filter(s => s.price_cad != null && s.price_usd == null).length;
+      const usdOnly = services.filter(s => s.price_usd != null && s.price_cad == null).length;
+      const both = services.filter(s => s.price_cad != null && s.price_usd != null).length;
+      const none = total - pricedAny;
+  
+      const status = pricedAny > 0 ? '✅ PASS' : '❌ FAIL';
+      console.log(
+        `${status} ${city}: ${pricedAny}/${total} services have a price ` +
+        `(CAD only: ${cadOnly}, USD only: ${usdOnly}, both: ${both}, none: ${none})`
+      );
+  
+      if (none > 0) {
+        console.log('   → Sample without price:');
+        services
+          .filter(s => !this.hasPrice(s))
+          .slice(0, 5)
+          .forEach(s => console.log(`     - ${s.name} (${s.type})`));
+      } else {
+        console.log('   → Sample with price:');
+        services
+          .filter(s => this.hasPrice(s))
+          .slice(0, 5)
+          .forEach(s => {
+            console.log(`     - ${s.name}: ${this.fmtPricePair(s.price_cad, s.price_usd)}`);
+          });
+      }
+    }
+  
+    console.log('');
   }
 }
 

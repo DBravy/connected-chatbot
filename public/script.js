@@ -527,9 +527,11 @@ class ChatInterface {
                     const groupSize = this.tripFacts?.groupSize?.value || 4;
                     const hasCad = typeof service.price_cad === 'number' && !isNaN(service.price_cad);
                     const hasUsd = typeof service.price_usd === 'number' && !isNaN(service.price_usd);
-                    const price = hasCad ? service.price_cad : (hasUsd ? service.price_usd : this.generateMockPrice(service.serviceName));
+                    
+                    // Assume price_cad and price_usd are total prices, calculate per-person price
+                    const totalPrice = hasCad ? service.price_cad : (hasUsd ? service.price_usd : this.generateMockPrice(service.serviceName) * groupSize);
                     const currency = hasCad ? 'CAD' : (hasUsd ? 'USD' : 'USD');
-                    const totalPrice = price * groupSize;
+                    const perPersonPrice = Math.round(totalPrice / groupSize);
                     
                     itineraryHtml += `
                       <div class="service-card ${statusClass} ${this.hasShownItineraryOnce ? 'no-animate' : ''}" data-service-id="${service.serviceId || ''}" data-pending="${isPending}">
@@ -562,9 +564,9 @@ class ChatInterface {
                           <div class="service-description">${serviceDescription}</div>
                     
                           <div class="service-pricing">
-                            <span class="service-price-per-person">$${price}/${currency} per person</span>
+                            <span class="service-price-per-person">$${perPersonPrice} ${currency} per person</span>
                             <span class="service-price-separator">|</span>
-                            <span>$${Number(totalPrice || 0).toLocaleString()}</span>
+                            <span>$${Number(totalPrice || 0).toLocaleString()} ${currency} total</span>
                           </div>
                         </div>
                       </div>

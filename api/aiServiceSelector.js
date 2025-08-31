@@ -137,9 +137,12 @@ export class AIServiceSelector {
                     timeSlot: { type: "string", enum: ["afternoon", "evening", "night", "late_night"] },
                     reason: { type: "string" },
                     estimatedDuration: { type: "string" },
-                    groupSuitability: { type: "string" }
+                    groupSuitability: { type: "string" },
+                    price_cad: { type: ["number", "null"] },
+                    price_usd: { type: ["number", "null"] },
+                    duration_hours: { type: ["number", "null"] }
                   },
-                  required: ["serviceId", "serviceName", "timeSlot", "reason"]
+                  required: ["serviceId", "serviceName", "timeSlot", "reason", "price_cad", "price_usd"]
                 }
               },
               alternativeOptions: {
@@ -314,9 +317,12 @@ export class AIServiceSelector {
                     timeSlot: { type: "string", enum: ["afternoon","evening","night","late_night"] },
                     reason: { type: "string" },
                     estimatedDuration: { type: "string" },
-                    groupSuitability: { type: "string" }
+                    groupSuitability: { type: "string" },
+                    price_cad: { type: ["number", "null"] },
+                    price_usd: { type: ["number", "null"] },
+                    duration_hours: { type: ["number", "null"] }
                   },
-                  required: ["serviceId","serviceName","timeSlot","reason"]
+                  required: ["serviceId", "serviceName", "timeSlot", "reason", "price_cad", "price_usd"]
                 }
               },
               alternativeOptions: {
@@ -383,7 +389,7 @@ export class AIServiceSelector {
 
     // PRE-FORMAT THE SERVICES LIST to avoid complex template expressions
     const availableServicesFormatted = allServices.map(service => 
-      `- ID: ${service.id} | Name: "${service.name}" | Category: ${service.category || service.type} | Description: ${(service.description || '').substring(0, 100)} | Price: ${service.price_cad || service.price_usd || 'TBD'} ${service.price_cad ? 'CAD' : 'USD'} | Duration: ${service.duration_hours || 'Flexible'} hours`
+      `- ID: ${service.id} | Name: "${service.name}" | Category: ${service.category || service.type} | Description: ${(service.description || '').substring(0, 100)} | Price CAD: ${service.price_cad || 'null'} | Price USD: ${service.price_usd || 'null'} | Duration: ${service.duration_hours || 'Flexible'} hours`
     ).join('\n');
 
     // PRE-FORMAT THE USER REQUEST MATCHING SECTION
@@ -523,13 +529,18 @@ ${usedList}
     
     // Add restaurant for dinner
     if (categories.restaurants[0]) {
+      const restaurant = categories.restaurants[0];
       selectedServices.push({
-        serviceId: categories.restaurants[0].id,
-        serviceName: categories.restaurants[0].name,
+        serviceId: restaurant.id,
+        serviceName: restaurant.name,
         timeSlot: "evening",
         reason: "Fallback restaurant selection for group dinner",
         estimatedDuration: "2 hours",
-        groupSuitability: "Perfect for group dining"
+        groupSuitability: "Perfect for group dining",
+        // ADD THESE LINES:
+        price_cad: restaurant.price_cad || null,
+        price_usd: restaurant.price_usd || null,
+        duration_hours: restaurant.duration_hours || null
       });
     }
     

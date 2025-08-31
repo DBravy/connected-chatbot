@@ -24,6 +24,10 @@ BACHELOR PARTY PLANNING TASK:
   5. If the user requests "strip club" and there are gentlemen's club services available, select from those
   6. Match user requests to the closest available service by name and description
   7. NEVER hallucinate services that aren't in the list
+
+  PRICING RULES:
+  8. PRESERVE pricing data: if a service has price_cad or price_usd in the available services list, include those exact values in your response
+  9. Copy price_cad, price_usd, and duration_hours from the available services list exactly as shown
   
   USER REQUEST MATCHING:
   ${userRequestMatchingSection}
@@ -33,16 +37,19 @@ BACHELOR PARTY PLANNING TASK:
     "selectedServices": [
       {
         "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES",
-        "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES", 
+        "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES",
         "timeSlot": "afternoon|evening|night|late_night",
         "reason": "Why this exact service was selected",
         "estimatedDuration": "X hours",
-        "groupSuitability": "How it works for ${groupSize} people"
+        "groupSuitability": "How it works for ${groupSize} people",
+        "price_cad": 123 or null,
+        "price_usd": 123 or null,
+        "duration_hours": 2 or null
       }
     ],
     "alternativeOptions": [
       {
-        "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES", 
+        "serviceId": "EXACT_ID_FROM_AVAILABLE_SERVICES",
         "serviceName": "EXACT_NAME_FROM_AVAILABLE_SERVICES",
         "reason": "Why this is a good alternative"
       }
