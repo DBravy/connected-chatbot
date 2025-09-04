@@ -190,6 +190,7 @@ body {
     line-height: 1.3;
 }
 
+
 @keyframes fadeInHero {
     from {
         opacity: 0;
@@ -267,6 +268,108 @@ body {
 
 .bot-message::before {
     content: "";
+}
+
+/* Interactive message styles */
+.message-content {
+    margin-bottom: 0;
+}
+
+.message-interactive {
+    margin-top: 16px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+}
+
+.interactive-btn {
+    padding: 8px 16px;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #333;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 80px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.interactive-btn:hover:not(:disabled) {
+    background: #f5f5f5;
+    border-color: #d1d1d1;
+    transform: translateY(-1px);
+}
+
+.interactive-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.interactive-btn.primary {
+    background: #007AFF;
+    color: white;
+    border-color: #007AFF;
+}
+
+.interactive-btn.primary:hover:not(:disabled) {
+    background: #0056b3;
+    border-color: #0056b3;
+}
+
+.interactive-btn.secondary {
+    background: #6c757d;
+    color: white;
+    border-color: #6c757d;
+}
+
+.interactive-btn.secondary:hover:not(:disabled) {
+    background: #545b62;
+    border-color: #545b62;
+}
+
+.interactive-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.interactive-btn.selected {
+    background: #28a745;
+    color: white;
+    border-color: #28a745;
+    box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
+}
+
+.interactive-btn.selected.no-button {
+    background: #dc3545;
+    border-color: #dc3545;
+    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
+}
+
+.interactive-btn.dimmed {
+    opacity: 0.4;
+    background: #f8f9fa;
+    color: #6c757d;
+    border-color: #e9ecef;
+}
+
+/* Responsive button styling */
+@media (max-width: 768px) {
+    .message-interactive {
+        gap: 6px;
+    }
+    
+    .interactive-btn {
+        padding: 10px 14px;
+        font-size: 14px;
+        min-width: 50px;
+        flex: 1;
+        max-width: 120px;
+    }
 }
 
 .chat-input-container {
@@ -985,6 +1088,316 @@ body {
     opacity: 1 !important;
     transform: none !important;
     animation: none !important;
+}
+
+/* Date Selector Styles */
+.date-selector-container {
+    margin-top: 16px;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: fadeInMessage 0.4s ease-out 0.2s forwards;
+}
+
+.date-selector {
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(229, 229, 229, 0.8);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+
+
+.date-group-inputs {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.date-inputs-section {
+    flex: 1;
+    min-width: 280px;
+}
+
+.date-inputs-section h5 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.date-inputs {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.date-input-group {
+    flex: 1;
+    min-width: 140px;
+}
+
+.date-input-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: #555;
+    margin-bottom: 6px;
+}
+
+.date-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    font-size: 14px;
+    background: white;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.date-input:focus {
+    outline: none;
+    border-color: #007AFF;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+/* Group Size Section */
+.group-size-section {
+    flex: 1;
+    min-width: 200px;
+}
+
+.group-size-section h5 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.group-size-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.group-size-input-group {
+    width: 100%;
+}
+
+.group-size-input-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: #555;
+    margin-bottom: 6px;
+}
+
+.group-size-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    font-size: 14px;
+    background: white;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.group-size-input:focus {
+    outline: none;
+    border-color: #007AFF;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+
+
+.date-selector-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+
+
+/* Responsive design for date selector */
+@media (max-width: 768px) {
+    .date-group-inputs {
+        flex-direction: column;
+        gap: 20px;
+    }
+    
+    .date-inputs-section,
+    .group-size-section {
+        min-width: auto;
+    }
+    
+    .date-inputs {
+        flex-direction: column;
+        gap: 12px;
+    }
+    
+    .date-input-group {
+        min-width: auto;
+    }
+    
+
+    
+    .date-selector-actions {
+        justify-content: stretch;
+    }
+    
+    .date-selector-actions .interactive-btn {
+        flex: 1;
+    }
+}
+
+/* Budget Selector Styles */
+.budget-selector-container {
+    margin-top: 16px;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: fadeInMessage 0.4s ease-out 0.2s forwards;
+}
+
+.budget-selector {
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(229, 229, 229, 0.8);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+.budget-selector h5 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.budget-input-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding: 12px 20px;
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    background: white;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.budget-input-container:focus-within {
+    border-color: #007AFF;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.budget-amount-wrapper {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+
+.budget-currency {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333;
+    margin-right: 4px;
+}
+
+.budget-amount-input {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+    width: 100%;
+    min-width: 0;
+}
+
+.budget-amount-input::placeholder {
+    color: #999;
+    font-weight: 500;
+}
+
+.budget-per-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 8px;
+}
+
+.budget-scope-dropdown {
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 16px;
+    font-weight: 500;
+    color: #333;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background-color 0.2s ease;
+}
+
+.budget-scope-dropdown:hover {
+    background: #f5f5f5;
+}
+
+.budget-scope-dropdown:focus {
+    background: #f0f0f0;
+}
+
+.budget-selector-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+/* Responsive design for budget selector */
+@media (max-width: 768px) {
+    .budget-input-container {
+        flex-direction: column;
+        gap: 16px;
+        align-items: stretch;
+        padding: 16px;
+    }
+    
+    .budget-amount-wrapper {
+        justify-content: center;
+    }
+    
+    .budget-currency {
+        font-size: 20px;
+    }
+    
+    .budget-amount-input {
+        font-size: 20px;
+        text-align: center;
+    }
+    
+    .budget-per-label {
+        text-align: center;
+        margin: 8px 0;
+    }
+    
+    .budget-scope-dropdown {
+        text-align: center;
+        padding: 8px 12px;
+        font-size: 16px;
+    }
+    
+    .budget-selector-actions {
+        justify-content: stretch;
+    }
+    
+    .budget-selector-actions .interactive-btn {
+        flex: 1;
+    }
 }
 
 /* Loved by section */

@@ -66,11 +66,14 @@
    
   FACT PRIORITIES:
   - ESSENTIAL (must have): destination, groupSize, startDate, endDate
-  - HELPFUL (should ask about): wildnessLevel, relationship, interestedActivities, ageRange, budget
+  - HELPFUL (should ask about): wildnessLevel, budget
+  // COMMENTED OUT: relationship, interestedActivities, ageRange (can be re-enabled later if needed)
   - OPTIONAL (don't persist): none currently
   
   CONVERSATION RULES:
   1. ASK ONLY ONE QUESTION at a time (max 2 if closely related)
+  - Exception: If both groupSize and trip dates (startDate/endDate) are missing, combine them into one short question (counts as one question).
+  - Example: "How many people are in your group, and what dates are you thinking (exact or rough)?"
   2. Get ESSENTIAL facts first, then ask about HELPFUL facts before transitioning to planning
   3. If user provides only a start date, ask about duration/end date next
   4. For HELPFUL facts: if user says "whatever you think is best" or "I don't care", set status to "set" with a reasonable default
@@ -80,9 +83,12 @@
   
   HELPFUL FACTS TO ASK ABOUT:
   - wildnessLevel: "How crazy do you want this to get? Scale of 1-5 where 1 is classy dinner and 5 is absolutely debaucherous?"
-  - relationship: "How do you all know each other? College buddies, work friends, family?"
-  - interestedActivities: "Anything specific you guys want to do? Strip clubs, golf, boat parties, extreme sports?"
-  - ageRange: "What's the age range of the group?"
+  // COMMENTED OUT: relationship question can be re-enabled later if needed
+  // - relationship: "How do you all know each other? College buddies, work friends, family?"
+  // COMMENTED OUT: interested activities question can be re-enabled later if needed
+  // - interestedActivities: "Anything specific you guys want to do? Strip clubs, golf, boat parties, extreme sports?"
+  // COMMENTED OUT: age range question can be re-enabled later if needed
+  // - ageRange: "What's the age range of the group?"
   - budget: "What's your budget looking like? Total for the group or per person?"
 
   DAY REFERENCE EXTRACTION (IMPORTANT):

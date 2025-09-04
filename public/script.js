@@ -28,6 +28,15 @@ class ChatInterface {
         this.hasShownTripSummaryOnce = false;
         this.hasShownItineraryOnce = false;
         
+        // Date selector reference
+        this.currentDateSelector = null;
+        
+        // Budget selector reference
+        this.currentBudgetSelector = null;
+        
+        // Store global reference for onclick handlers
+        window.chatInterface = this;
+        
         this.init();
     }
 
@@ -70,21 +79,38 @@ class ChatInterface {
             return 'Not specified';
         }
         
-        // If it's already a string that starts with $, return as is
-        if (typeof budget === 'string' && budget.startsWith('$')) {
-            return budget;
+        // If it's a string, try to extract just the numeric part
+        if (typeof budget === 'string') {
+            // Strip common scope phrases and extract the numeric value
+            let cleanBudget = budget
+                .replace(/per person/gi, '')
+                .replace(/total/gi, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            
+            // If it starts with $, try to parse the number after it
+            if (cleanBudget.startsWith('$')) {
+                const numericPart = cleanBudget.slice(1).replace(/,/g, '');
+                const numericBudget = parseFloat(numericPart);
+                if (!isNaN(numericBudget)) {
+                    return `$${numericBudget.toLocaleString()}`;
+                }
+            }
+            
+            // Try to parse as number
+            const numericBudget = parseFloat(cleanBudget);
+            if (!isNaN(numericBudget)) {
+                return `$${numericBudget.toLocaleString()}`;
+            }
+            
+            // For non-numeric strings (like "flexible"), return capitalized
+            return budget.charAt(0).toUpperCase() + budget.slice(1);
         }
         
-        // If it's a number or a string that can be parsed as a number
+        // If it's a number
         const numericBudget = parseFloat(budget);
         if (!isNaN(numericBudget)) {
             return `$${numericBudget.toLocaleString()}`;
-        }
-        
-        // For non-numeric strings (like "flexible", "to be determined"), 
-        // capitalize first letter and return without dollar sign
-        if (typeof budget === 'string') {
-            return budget.charAt(0).toUpperCase() + budget.slice(1);
         }
         
         return 'Not specified';
@@ -214,6 +240,564 @@ class ChatInterface {
         }, 800);
     }
 
+    addMessage(content, sender) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${sender}-message`;
+        messageDiv.textContent = content;
+        
+        // Check if this is a date-related question and add date selector
+        if (sender === 'bot' && this.isDateQuestion(content)) {
+            this.addDateSelector(messageDiv);
+        }
+        
+        // Check if this is a budget-related question and add budget selector
+        if (sender === 'bot' && this.isBudgetQuestion(content)) {
+            this.addBudgetSelector(messageDiv);
+        }
+        
+        this.messagesContainer.appendChild(messageDiv);
+        
+        // Scroll to bottom with a small delay to ensure the message is rendered
+        setTimeout(() => {
+            this.scrollToBottomIfAppropriate();
+        }, 50);
+    }
+
+    // New method to add interactive messages with buttons
+    addInteractiveMessage(content, sender, interactive = null) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${sender}-message`;
+        
+        // Create message content container
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        contentDiv.textContent = content;
+        messageDiv.appendChild(contentDiv);
+        
+        // Add interactive elements if provided
+        if (interactive) {
+            const interactiveDiv = document.createElement('div');
+            interactiveDiv.className = 'message-interactive';
+            
+            if (interactive.type === 'buttons') {
+                interactive.buttons.forEach(button => {
+                    const buttonElement = document.createElement('button');
+                    buttonElement.className = `interactive-btn ${button.style || 'primary'}`;
+                    buttonElement.textContent = button.text;
+                    buttonElement.dataset.value = button.value;
+                    buttonElement.onclick = () => this.handleButtonResponse(button.value, button.text, messageDiv);
+                    interactiveDiv.appendChild(buttonElement);
+                });
+            }
+            
+            messageDiv.appendChild(interactiveDiv);
+        }
+        
+        // Check if this is a date-related question and add date selector
+        if (sender === 'bot' && this.isDateQuestion(content)) {
+            this.addDateSelector(messageDiv);
+        }
+        
+        // Check if this is a budget-related question and add budget selector
+        if (sender === 'bot' && this.isBudgetQuestion(content)) {
+            this.addBudgetSelector(messageDiv);
+        }
+        
+        this.messagesContainer.appendChild(messageDiv);
+        
+        // Scroll to bottom with a small delay to ensure the message is rendered
+        setTimeout(() => {
+            this.scrollToBottomIfAppropriate();
+        }, 50);
+    }
+
+    // Check if a message is asking for dates and/or group size
+    isDateQuestion(content) {
+        const dateAndGroupKeywords = [
+            'when do you want to go',
+            'what dates',
+            'when are you going',
+            'when is your trip',
+            'what date',
+            'when do you travel',
+            'when are you traveling',
+            'when do you want to travel',
+            'dates are you thinking',
+            'when would you like to go',
+            'when are you planning to go',
+            'what dates work for you',
+            'when are you looking to go',
+            'when would you like to travel',
+            'what are your travel dates',
+            'when is the bachelor party',
+            'when is the trip',
+            'when do you want this to happen',
+            'what weekend',
+            'which dates',
+            'how many people and when',
+            'group size and dates',
+            'dates you have in mind',
+            'how many in your group',
+            'what\'s the group size',
+            'how many people are going'
+        ];
+        
+        const lowerContent = content.toLowerCase();
+        return dateAndGroupKeywords.some(keyword => lowerContent.includes(keyword));
+    }
+
+    // Check if a message is asking for budget
+    isBudgetQuestion(content) {
+        const budgetKeywords = [
+            'what\'s your budget',
+            'budget looking like',
+            'how much are you looking to spend',
+            'what\'s the budget',
+            'budget range',
+            'how much do you want to spend',
+            'what are you thinking budget-wise',
+            'budget per person',
+            'total budget',
+            'budget for the group'
+        ];
+        
+        const lowerContent = content.toLowerCase();
+        return budgetKeywords.some(keyword => lowerContent.includes(keyword));
+    }
+
+    // Add date selector UI to a message
+    addDateSelector(messageDiv) {
+        const dateSelector = document.createElement('div');
+        dateSelector.className = 'date-selector-container';
+        
+        dateSelector.innerHTML = `
+            <div class="date-selector">
+                <div class="date-group-inputs">
+                    <div class="date-inputs-section">
+                        <h5>Travel Dates</h5>
+                        <div class="date-inputs">
+                            <div class="date-input-group">
+                                <label for="start-date">Start Date</label>
+                                <input type="date" id="start-date" class="date-input">
+                            </div>
+                            <div class="date-input-group">
+                                <label for="end-date">End Date (optional)</label>
+                                <input type="date" id="end-date" class="date-input">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="group-size-section">
+                        <h5>Group Size</h5>
+                        <div class="group-size-inputs">
+                            <div class="group-size-input-group">
+                                <label for="group-size">Number of people</label>
+                                <input type="number" id="group-size" class="group-size-input" min="2" max="50" placeholder="e.g. 8">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="date-selector-actions">
+                    <button class="interactive-btn primary" onclick="chatInterface.handleDateAndGroupSelection()">Submit Details</button>
+                    <button class="interactive-btn secondary" onclick="chatInterface.hideDateSelector()">Cancel</button>
+                </div>
+            </div>
+        `;
+        
+        messageDiv.appendChild(dateSelector);
+        
+        // Set minimum date to today
+        const today = new Date().toISOString().split('T')[0];
+        const startDateInput = dateSelector.querySelector('#start-date');
+        const endDateInput = dateSelector.querySelector('#end-date');
+        const groupSizeInput = dateSelector.querySelector('#group-size');
+        
+        startDateInput.min = today;
+        endDateInput.min = today;
+        
+        // Update end date minimum when start date changes
+        startDateInput.addEventListener('change', () => {
+            endDateInput.min = startDateInput.value;
+            if (endDateInput.value && endDateInput.value < startDateInput.value) {
+                endDateInput.value = '';
+            }
+        });
+        
+
+        
+        // Store reference to current date selector
+        this.currentDateSelector = dateSelector;
+    }
+
+    // Add budget selector UI to a message
+    addBudgetSelector(messageDiv) {
+        const budgetSelector = document.createElement('div');
+        budgetSelector.className = 'budget-selector-container';
+
+        budgetSelector.innerHTML = `
+            <div class="budget-selector">
+                <h5>Budget</h5>
+                <div class="budget-input-container">
+                    <div class="budget-amount-wrapper">
+                        <span class="budget-currency">$</span>
+                        <input type="number" id="budget-amount" class="budget-amount-input" min="0" placeholder="10,000">
+                    </div>
+                    <span class="budget-per-label">PER</span>
+                    <select id="budget-scope" class="budget-scope-dropdown">
+                        <option value="total">Group</option>
+                        <option value="per_person">Person</option>
+                    </select>
+                </div>
+                <div class="budget-selector-actions">
+                    <button class="interactive-btn primary" onclick="chatInterface.handleBudgetSelection()">Submit</button>
+                    <button class="interactive-btn secondary" onclick="chatInterface.handleUnsureBudget()">Unsure</button>
+                </div>
+            </div>
+        `;
+
+        messageDiv.appendChild(budgetSelector);
+
+        // Store reference to current budget selector
+        this.currentBudgetSelector = budgetSelector;
+    }
+
+    // Handle combined date and group size selection submission
+    handleDateAndGroupSelection() {
+        if (!this.currentDateSelector) return;
+        
+        const startDateInput = this.currentDateSelector.querySelector('#start-date');
+        const endDateInput = this.currentDateSelector.querySelector('#end-date');
+        const groupSizeInput = this.currentDateSelector.querySelector('#group-size');
+        
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        const groupSize = parseInt(groupSizeInput.value);
+        
+        if (!startDate) {
+            alert('Please select a start date');
+            return;
+        }
+        
+        if (!groupSize || groupSize < 2) {
+            alert('Please enter a valid group size (minimum 2 people)');
+            return;
+        }
+        
+        // Format the response message
+        let responseMessage = '';
+        
+        // Add group size
+        responseMessage += `${groupSize} people`;
+        
+        // Add dates
+        if (startDate && endDate) {
+            const startFormatted = this.formatDateForDisplay(startDate);
+            const endFormatted = this.formatDateForDisplay(endDate);
+            responseMessage += `, ${startFormatted} to ${endFormatted}`;
+        } else if (startDate) {
+            const startFormatted = this.formatDateForDisplay(startDate);
+            responseMessage += `, ${startFormatted}`;
+        }
+        
+        // Add user message with selected details
+        this.addMessage(responseMessage, 'user');
+        
+        // Hide the date selector
+        this.hideDateSelector();
+        
+        // Send the combined response to the backend
+        this.sendDateAndGroupResponse(startDate, endDate, groupSize);
+    }
+
+    // Handle budget selection submission
+    handleBudgetSelection() {
+        if (!this.currentBudgetSelector) return;
+
+        const amountInput = this.currentBudgetSelector.querySelector('#budget-amount');
+        const scopeSelect = this.currentBudgetSelector.querySelector('#budget-scope');
+
+        const amount = parseFloat(amountInput.value);
+        const scope = scopeSelect.value;
+
+        if (isNaN(amount) || amount < 0) {
+            alert('Please enter a valid budget amount (0 or more)');
+            return;
+        }
+
+        // Format the response message
+        let responseMessage = '';
+        responseMessage += `Budget: ${this.formatBudget(amount)}`;
+        if (scope === 'per_person') {
+            responseMessage += ' per person';
+        }
+        responseMessage += '.';
+
+        // Add user message with selected details
+        this.addMessage(responseMessage, 'user');
+
+        // Hide the budget selector
+        this.hideBudgetSelector();
+
+        // Send the budget response to the backend
+        this.sendBudgetResponse(amount, scope);
+    }
+
+    // Handle "Unsure" budget selection
+    handleUnsureBudget() {
+        if (!this.currentBudgetSelector) return;
+        const amountInput = this.currentBudgetSelector.querySelector('#budget-amount');
+        amountInput.value = ''; // Clear the amount input
+        this.addMessage('Budget: Not specified.', 'user');
+        this.hideBudgetSelector();
+        this.sendBudgetResponse(null, 'total'); // Send a response indicating unsure
+    }
+
+    // Send budget response to backend
+    async sendBudgetResponse(amount, scope) {
+        this.sendButton.disabled = true;
+
+        try {
+            // Show loading indicator
+            this.showLoadingIndicator();
+            
+            // Create a natural language message for the backend
+            let message;
+            if (amount === null) {
+                message = "I'm not sure about the budget yet";
+            } else {
+                message = `Budget: ${this.formatBudget(amount)}`;
+                if (scope === 'per_person') {
+                    message += ' per person';
+                } else {
+                    message += ' total';
+                }
+            }
+            
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversationId: this.conversationId,
+                    message: message,
+                    snapshot: this.currentState,
+                    isBudgetResponse: true
+                })
+            });
+
+            const result = await response.json();
+            this.currentState = result.snapshot || this.currentState;
+            
+            // Hide loading indicator before showing response
+            this.hideLoadingIndicator();
+            
+            // Check if response includes interactive elements
+            if (result.interactive) {
+                this.addInteractiveMessage(result.response, 'bot', result.interactive);
+            } else {
+                this.addMessage(result.response, 'bot');
+            }
+            
+            // Update itinerary if we have facts and are in planning phase
+            if (result.facts) {
+                this.tripFacts = result.facts;
+                this.updateTripSummary();
+            }
+            
+            // Update itinerary if we received itinerary data
+            if (result.itinerary) {
+                this.currentItinerary = result.itinerary;
+                this.updateItinerary();
+            }
+            
+            console.log('Conversation data:', result);
+        } catch (error) {
+            console.error('Error:', error);
+            // Hide loading indicator on error
+            this.hideLoadingIndicator();
+            this.addMessage('Sorry, something went wrong. Please try again.', 'bot');
+        } finally {
+            this.sendButton.disabled = false;
+            this.messageInput.focus();
+        }
+    }
+
+    // Format date for display
+    formatDateForDisplay(dateString) {
+        const date = new Date(dateString + 'T12:00:00'); // Add time to avoid timezone issues
+        return date.toLocaleDateString('en-US', { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+        });
+    }
+
+    // Hide date selector
+    hideDateSelector() {
+        if (this.currentDateSelector) {
+            this.currentDateSelector.style.display = 'none';
+            this.currentDateSelector = null;
+        }
+    }
+
+    // Hide budget selector
+    hideBudgetSelector() {
+        if (this.currentBudgetSelector) {
+            this.currentBudgetSelector.style.display = 'none';
+            this.currentBudgetSelector = null;
+        }
+    }
+
+    // Send combined date and group size response to backend
+    async sendDateAndGroupResponse(startDate, endDate, groupSize) {
+        this.sendButton.disabled = true;
+
+        try {
+            // Show loading indicator
+            this.showLoadingIndicator();
+            
+            // Create a natural language message for the backend
+            let message = `${groupSize} people`;
+            if (startDate && endDate) {
+                message += `, ${startDate} to ${endDate}`;
+            } else if (startDate) {
+                message += `, ${startDate}`;
+            }
+            
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversationId: this.conversationId,
+                    message: message,
+                    snapshot: this.currentState,
+                    isDateAndGroupResponse: true
+                })
+            });
+
+            const result = await response.json();
+            this.currentState = result.snapshot || this.currentState;
+            
+            // Hide loading indicator before showing response
+            this.hideLoadingIndicator();
+            
+            // Check if response includes interactive elements
+            if (result.interactive) {
+                this.addInteractiveMessage(result.response, 'bot', result.interactive);
+            } else {
+                this.addMessage(result.response, 'bot');
+            }
+            
+            // Update itinerary if we have facts and are in planning phase
+            if (result.facts) {
+                this.tripFacts = result.facts;
+                this.updateTripSummary();
+            }
+            
+            // Update itinerary if we received itinerary data
+            if (result.itinerary) {
+                this.currentItinerary = result.itinerary;
+                this.updateItinerary();
+            }
+            
+            console.log('Conversation data:', result);
+        } catch (error) {
+            console.error('Error:', error);
+            // Hide loading indicator on error
+            this.hideLoadingIndicator();
+            this.addMessage('Sorry, something went wrong. Please try again.', 'bot');
+        } finally {
+            this.sendButton.disabled = false;
+            this.messageInput.focus();
+        }
+    }
+
+    // Legacy method for date-only responses (keeping for backward compatibility)
+    async sendDateResponse(startDate, endDate) {
+        // Redirect to the new combined method with a default group size
+        this.sendDateAndGroupResponse(startDate, endDate, null);
+    }
+
+    // Handle button responses
+    async handleButtonResponse(value, text, messageDiv) {
+        // Disable all buttons in this message to prevent multiple clicks
+        const buttons = messageDiv.querySelectorAll('.interactive-btn');
+        buttons.forEach(btn => {
+            btn.disabled = true;
+            if (btn.textContent === text) {
+                btn.classList.add('selected');
+                // Add special styling for "No" button
+                if (text.toLowerCase() === 'no') {
+                    btn.classList.add('no-button');
+                }
+            } else {
+                btn.classList.add('dimmed');
+            }
+        });
+
+        // Add the user's response as a regular message
+        this.addMessage(text, 'user');
+
+        // Send the button value as the message to the backend
+        this.sendButtonResponse(value);
+    }
+
+    // Send button response to backend
+    async sendButtonResponse(value) {
+        this.sendButton.disabled = true;
+
+        try {
+            // Show loading indicator
+            this.showLoadingIndicator();
+            
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversationId: this.conversationId,
+                    message: value,
+                    snapshot: this.currentState,
+                    isButtonResponse: true
+                })
+            });
+
+            const result = await response.json();
+            this.currentState = result.snapshot || this.currentState;
+            
+            // Hide loading indicator before showing response
+            this.hideLoadingIndicator();
+            
+            // Check if response includes interactive elements
+            if (result.interactive) {
+                this.addInteractiveMessage(result.response, 'bot', result.interactive);
+            } else {
+                this.addMessage(result.response, 'bot');
+            }
+            
+            // Update itinerary if we have facts and are in planning phase
+            if (result.facts) {
+                this.tripFacts = result.facts;
+                this.updateTripSummary();
+            }
+            
+            // Update itinerary if we received itinerary data
+            if (result.itinerary) {
+                this.currentItinerary = result.itinerary;
+                this.updateItinerary();
+            }
+            
+            console.log('Conversation data:', result);
+        } catch (error) {
+            console.error('Error:', error);
+            // Hide loading indicator on error
+            this.hideLoadingIndicator();
+            this.addMessage('Sorry, something went wrong. Please try again.', 'bot');
+        } finally {
+            this.sendButton.disabled = false;
+            this.messageInput.focus();
+        }
+    }
+
+    // Update the main sendMessage method to support interactive responses
     async sendMessage() {
         const message = this.messageInput.value.trim();
         if (!message) return;
@@ -312,8 +896,12 @@ class ChatInterface {
             // Hide loading indicator before showing response
             this.hideLoadingIndicator();
             
-            // Add bot response to chat
-            this.addMessage(result.response, 'bot');
+            // Check if response includes interactive elements
+            if (result.interactive) {
+                this.addInteractiveMessage(result.response, 'bot', result.interactive);
+            } else {
+                this.addMessage(result.response, 'bot');
+            }
             
             // Update itinerary if we have facts and are in planning phase
             if (result.facts) {
@@ -337,18 +925,6 @@ class ChatInterface {
             this.sendButton.disabled = false;
             this.messageInput.focus();
         }
-    }
-
-    addMessage(content, sender) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${sender}-message`;
-        messageDiv.textContent = content;
-        this.messagesContainer.appendChild(messageDiv);
-        
-        // Scroll to bottom with a small delay to ensure the message is rendered
-        setTimeout(() => {
-            this.scrollToBottomIfAppropriate();
-        }, 50);
     }
 
     showLoadingIndicator() {

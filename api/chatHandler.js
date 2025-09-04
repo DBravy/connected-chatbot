@@ -644,9 +644,27 @@ export class ChatHandler {
 
       const responseText = response.choices[0].message.content;
       
+      // Check if this response is asking for Austin confirmation
+      const isAustinConfirmation = responseText.toLowerCase().includes('austin') && 
+                                  (responseText.includes('?') || responseText.toLowerCase().includes('confirm'));
+      
+      let interactive = null;
+      if (isAustinConfirmation) {
+        // Set flag to expect Austin confirmation
+        conversation.awaitingAustinConfirmation = true;
+        interactive = {
+          type: 'buttons',
+          buttons: [
+            { text: 'Yes', value: 'yes', style: 'primary' },
+            { text: 'No', value: 'no', style: 'secondary' }
+          ]
+        };
+      }
+      
       return {
         handled: true,
         response: responseText,
+        interactive,
         assumptions
       };
       
@@ -730,6 +748,7 @@ export class ChatHandler {
         const snapshot = this.exportSnapshot(conversation);
         return {
           response: result.response,
+          interactive: result.interactive,
           phase: conversation.phase,
           facts: conversation.facts,
           assumptions: result.assumptions || [],
@@ -739,6 +758,58 @@ export class ChatHandler {
       }
     }
     // <<< END HARDCODED FIRST RESPONSE HANDLING >>>
+    
+    // Handle Austin confirmation responses
+    if (conversation.awaitingAustinConfirmation) {
+      const userResponse = userMessage.toLowerCase().trim();
+      if (userResponse === 'yes' || userResponse === 'y' || userResponse.includes('yes')) {
+        // User confirmed Austin - set destination as confirmed
+        this.setFact(conversation, 'destination', 'Austin', `Austin confirmation: "${userMessage}"`);
+        conversation.facts.destination.status = 'set';
+        conversation.awaitingAustinConfirmation = false;
+        
+        // Continue with normal conversation flow
+        const continueResponse = "Perfect! Let's plan your Austin bachelor party. How many people are in your group, and what dates are you thinking?";
+        
+        conversation.messages.push(
+          { role: 'user', content: userMessage, timestamp: new Date().toISOString() },
+          { role: 'assistant', content: continueResponse, timestamp: new Date().toISOString() }
+        );
+        
+        const snapshot = this.exportSnapshot(conversation);
+        return {
+          response: continueResponse,
+          phase: conversation.phase,
+          facts: conversation.facts,
+          assumptions: [`User confirmed Austin as destination`],
+          itinerary: this.buildSidebarItinerary(conversation),
+          snapshot
+        };
+      } else if (userResponse === 'no' || userResponse === 'n' || userResponse.includes('no')) {
+        // User said no to Austin - explain limitation
+        this.setFact(conversation, 'destination', 'unavailable', `Austin rejection: "${userMessage}"`);
+        conversation.facts.destination.status = 'corrected';
+        conversation.awaitingAustinConfirmation = false;
+        
+        const rejectionResponse = "Unfortunately our services are only available in Austin, let me know if you change your mind.";
+        
+        conversation.messages.push(
+          { role: 'user', content: userMessage, timestamp: new Date().toISOString() },
+          { role: 'assistant', content: rejectionResponse, timestamp: new Date().toISOString() }
+        );
+        
+        const snapshot = this.exportSnapshot(conversation);
+        return {
+          response: rejectionResponse,
+          phase: conversation.phase,
+          facts: conversation.facts,
+          assumptions: [`User rejected Austin as destination`],
+          itinerary: this.buildSidebarItinerary(conversation),
+          snapshot
+        };
+      }
+      // If response is unclear, continue with normal processing
+    }
     
     // Handle different phases
     let finalResponse;
@@ -1473,9 +1544,12 @@ async generateItinerary(conversationData) {
       // Fallback: legacy stricter gate (kept for safety)
       const helpfulFactsAddressed = [
         facts.wildnessLevel.status !== FIELD_STATUS.UNKNOWN,
-        facts.relationship.status !== FIELD_STATUS.UNKNOWN,
-        facts.interestedActivities.status !== FIELD_STATUS.UNKNOWN,
-        facts.ageRange.status !== FIELD_STATUS.UNKNOWN,
+        // COMMENTED OUT: relationship fact check (can be re-enabled later if needed)
+        // facts.relationship.status !== FIELD_STATUS.UNKNOWN,
+        // COMMENTED OUT: interested activities fact check (can be re-enabled later if needed)
+        // facts.interestedActivities.status !== FIELD_STATUS.UNKNOWN,
+        // COMMENTED OUT: age range fact check (can be re-enabled later if needed)
+        // facts.ageRange.status !== FIELD_STATUS.UNKNOWN,
         facts.budget.status !== FIELD_STATUS.UNKNOWN
       ];
     

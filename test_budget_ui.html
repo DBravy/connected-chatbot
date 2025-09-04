@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budget UI Test</title>
+    <link rel="stylesheet" href="public/style.css">
+</head>
+<body>
+    <div style="max-width: 720px; margin: 50px auto; padding: 20px;">
+        <h1>Budget UI Test</h1>
+        
+        <!-- Test Bot Message with Budget Question -->
+        <div class="message bot-message">
+            <div class="message-content">
+                What's your budget looking like? Total for the group or per person?
+            </div>
+            
+            <!-- Budget Selector UI -->
+            <div class="budget-selector-container">
+                <div class="budget-selector">
+                    <h5>Budget</h5>
+                    <div class="budget-input-container">
+                        <div class="budget-amount-wrapper">
+                            <span class="budget-currency">$</span>
+                            <input type="number" id="budget-amount" class="budget-amount-input" min="0" placeholder="10,000">
+                        </div>
+                        <span class="budget-per-label">PER</span>
+                        <select id="budget-scope" class="budget-scope-dropdown">
+                            <option value="total">Group</option>
+                            <option value="per_person">Person</option>
+                        </select>
+                    </div>
+                    <div class="budget-selector-actions">
+                        <button class="interactive-btn primary" onclick="alert('Submit clicked')">Submit</button>
+                        <button class="interactive-btn secondary" onclick="alert('Unsure clicked')">Unsure</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Test User Response -->
+        <div class="message user-message">
+            Budget: $2,000 per person.
+        </div>
+    </div>
+</body>
+</html> 

@@ -26,6 +26,9 @@ export const createNewConversation = (userId = null) => ({
 
   // NEW: Flag to track that the first user response should always be wildness level
   expectingFirstWildnessResponse: true,
+  
+  // Flag to track when we're awaiting Austin confirmation
+  awaitingAustinConfirmation: false,
 
   dayByDayPlanning: {
       currentDay: 0,          // Which day we're currently planning (0-indexed)
