@@ -285,9 +285,32 @@ class ChatInterface {
                     buttonElement.className = `interactive-btn ${button.style || 'primary'}`;
                     buttonElement.textContent = button.text;
                     buttonElement.dataset.value = button.value;
+                    
+                    // Add description as tooltip if available
+                    if (button.description) {
+                        buttonElement.title = button.description;
+                        buttonElement.dataset.description = button.description;
+                    }
+                    
                     buttonElement.onclick = () => this.handleButtonResponse(button.value, button.text, messageDiv);
                     interactiveDiv.appendChild(buttonElement);
                 });
+            } else if (interactive.type === 'guided_cards') {
+                // Create guided options container
+                const guidedContainer = document.createElement('div');
+                guidedContainer.className = 'guided-options-container';
+                
+                // Attach subOptions map (for dynamic replacement)
+                guidedContainer.__subOptions = interactive.subOptions || {};
+                guidedContainer.__dynamicReplace = interactive.dynamicReplace === true;
+                guidedContainer.__replaceCurrent = interactive.replaceCurrent === true;
+                
+                interactive.options.forEach(option => {
+                    const cardElement = this.createGuidedOptionCard(option, messageDiv, guidedContainer);
+                    guidedContainer.appendChild(cardElement);
+                });
+                
+                interactiveDiv.appendChild(guidedContainer);
             }
             
             messageDiv.appendChild(interactiveDiv);
@@ -631,19 +654,84 @@ class ChatInterface {
         });
     }
 
-    // Hide date selector
+    // Disable date selector and show selected values
     hideDateSelector() {
         if (this.currentDateSelector) {
-            this.currentDateSelector.style.display = 'none';
+            // Instead of hiding, disable the inputs and show selected state
+            this.disableDateSelector(this.currentDateSelector);
             this.currentDateSelector = null;
         }
     }
 
-    // Hide budget selector
+    // Disable budget selector and show selected values
     hideBudgetSelector() {
         if (this.currentBudgetSelector) {
-            this.currentBudgetSelector.style.display = 'none';
+            // Instead of hiding, disable the inputs and show selected state
+            this.disableBudgetSelector(this.currentBudgetSelector);
             this.currentBudgetSelector = null;
+        }
+    }
+
+    // Disable date selector inputs and show completion state
+    disableDateSelector(selectorElement) {
+        // Disable all inputs
+        const inputs = selectorElement.querySelectorAll('input');
+        inputs.forEach(input => {
+            input.disabled = true;
+        });
+
+        // Disable buttons and update their text
+        const submitBtn = selectorElement.querySelector('.interactive-btn.primary');
+        const cancelBtn = selectorElement.querySelector('.interactive-btn.secondary');
+        
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitted';
+            submitBtn.classList.add('disabled');
+        }
+        
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none'; // Hide cancel button
+        }
+
+        // Add visual indication that it's been used
+        const dateSelector = selectorElement.querySelector('.date-selector');
+        if (dateSelector) {
+            dateSelector.classList.add('selector-used');
+        }
+    }
+
+    // Disable budget selector inputs and show completion state
+    disableBudgetSelector(selectorElement) {
+        // Disable all inputs
+        const inputs = selectorElement.querySelectorAll('input, select');
+        inputs.forEach(input => {
+            input.disabled = true;
+        });
+
+        // Disable buttons and update their text
+        const submitBtn = selectorElement.querySelector('.interactive-btn.primary');
+        const cancelBtn = selectorElement.querySelector('.interactive-btn.secondary');
+        const unsureBtn = selectorElement.querySelector('.interactive-btn.tertiary');
+        
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitted';
+            submitBtn.classList.add('disabled');
+        }
+        
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+        }
+
+        if (unsureBtn) {
+            unsureBtn.style.display = 'none';
+        }
+
+        // Add visual indication that it's been used
+        const budgetSelector = selectorElement.querySelector('.budget-selector');
+        if (budgetSelector) {
+            budgetSelector.classList.add('selector-used');
         }
     }
 
@@ -1263,6 +1351,78 @@ class ChatInterface {
             return Math.floor(Math.random() * 300) + 200; // $200-500
         }
         return Math.floor(Math.random() * 150) + 75; // Default $75-225
+    }
+
+    createGuidedOptionCard(option, messageDiv, guidedContainer) {
+        const cardElement = document.createElement('div');
+        cardElement.className = 'guided-option-card';
+        cardElement.dataset.value = option.value;
+        
+        // Format pricing
+        let priceDisplay = '';
+        if (option.price_per_person) {
+            priceDisplay = `$${option.price_per_person} CAD per person`;
+        } else if (option.price_cad) {
+            priceDisplay = `$${option.price_cad} CAD total`;
+        }
+        
+        cardElement.innerHTML = `
+            <div class="guided-option-content">
+                <div class="guided-option-header">
+                    <div class="guided-option-title">${option.title}</div>
+                    ${priceDisplay ? `<div class="guided-option-price">${priceDisplay}</div>` : ''}
+                </div>
+                <div class="guided-option-main">
+                    <div class="guided-option-image"></div>
+                    <div class="guided-option-details">
+                        <div class="guided-option-description">${option.description}</div>
+                        <div class="guided-option-features">
+                            ${option.features.map(feature => `<span class="guided-option-feature">${feature}</span>`).join('')}
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="select-indicator"></div>
+        `;
+        
+        // Add click handler
+        cardElement.onclick = () => this.handleGuidedOptionSelection(option, messageDiv, guidedContainer);
+        
+        return cardElement;
+    }
+
+    handleGuidedOptionSelection(option, messageDiv, guidedContainer) {
+        const value = option.value;
+
+        // Dynamic sub-option replacement
+        const needsSubReplace = guidedContainer && guidedContainer.__dynamicReplace && guidedContainer.__subOptions && guidedContainer.__subOptions[value];
+        if (needsSubReplace) {
+            // Replace the current options with sub-options without adding a user chat message
+            const subOptions = guidedContainer.__subOptions[value];
+            guidedContainer.innerHTML = '';
+            subOptions.forEach(sub => {
+                const cardElement = this.createGuidedOptionCard(sub, messageDiv, guidedContainer);
+                guidedContainer.appendChild(cardElement);
+            });
+            return; // Do not send to backend yet
+        }
+
+        // Disable all cards in this message to prevent multiple clicks
+        const cards = messageDiv.querySelectorAll('.guided-option-card');
+        cards.forEach(card => {
+            card.classList.add('disabled');
+            if (card.dataset.value === value) {
+                card.classList.add('selected');
+            }
+        });
+
+        // Optionally skip adding a user message if replaceCurrent/inline
+        if (!guidedContainer || !guidedContainer.__replaceCurrent) {
+            this.addMessage(option.title, 'user');
+        }
+
+        // Send the option value as the message to the backend
+        this.sendButtonResponse(value);
     }
 
     generateId() {

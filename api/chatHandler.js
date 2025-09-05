@@ -255,6 +255,8 @@ export class ChatHandler {
       expectingFirstWildnessResponse: conversation.expectingFirstWildnessResponse,
       // NEW: persist awaiting fact capture hint
       awaiting: conversation.awaiting || { fact: null, sinceMessageId: null },
+      // NEW: persist guided first day state
+      guidedFirstDay: conversation.guidedFirstDay || { step: null, airportPickup: null, eveningActivity: null, isComplete: false },
       dayByDayPlanning: {
         ...conversation.dayByDayPlanning,
         usedServices: Array.from(conversation.dayByDayPlanning?.usedServices || [])
@@ -267,14 +269,17 @@ export class ChatHandler {
   importSnapshot(conversation, snapshot) {
     const snap = this.deepClone(snapshot);
   
-    conversation.phase = snap.phase ?? conversation.phase;
+        conversation.phase = snap.phase ?? conversation.phase;
     conversation.facts = snap.facts ?? conversation.facts;
     conversation.availableServices = snap.availableServices ?? [];
     conversation.selectedServices = snap.selectedServices ?? {};
     conversation.expectingFirstWildnessResponse = snap.expectingFirstWildnessResponse ?? false;
-  
+
     // NEW: restore awaiting (fallback to a safe default)
     conversation.awaiting = snap.awaiting ?? conversation.awaiting ?? { fact: null, sinceMessageId: null };
+    
+    // NEW: restore guided first day state
+    conversation.guidedFirstDay = snap.guidedFirstDay ?? conversation.guidedFirstDay ?? { step: null, airportPickup: null, eveningActivity: null, isComplete: false };
   
     // Merge then rehydrate Set <- Array/object
     conversation.dayByDayPlanning = {
@@ -834,18 +839,80 @@ export class ChatHandler {
       // Handle phase-specific logic
       finalResponse = reduction.reply;
       
-      if (newPhase === PHASES.PLANNING) {
+      if (newPhase === PHASES.GUIDED_FIRST_DAY) {
+        if (phaseChanged) {
+          // Just transitioned to guided first day - start the guided experience
+          await this.searchServicesForConversation(conversation);
+          const guidedResponse = await this.startGuidedFirstDay(conversation);
+          
+          // Handle interactive response format
+          if (typeof guidedResponse === 'object' && guidedResponse.interactive) {
+            finalResponse = guidedResponse.response;
+            // Store interactive elements for return
+            conversation.pendingInteractive = guidedResponse.interactive;
+          } else {
+            finalResponse = guidedResponse;
+          }
+        } else {
+          // Already in guided first day phase - handle user responses
+          const guidedResult = await this.handleGuidedFirstDay(conversation, userMessage, reduction);
+          finalResponse = guidedResult.response;
+          newPhase = guidedResult.newPhase;
+          conversation.phase = newPhase;
+          
+          // Handle interactive response format
+          if (guidedResult.interactive) {
+            conversation.pendingInteractive = guidedResult.interactive;
+          }
+          
+          // If we completed guided first day and moved to planning, generate the itinerary
+          if (newPhase === PHASES.PLANNING) {
+            const result = await this.generateGuidedItineraryPresentation(conversation);
+            // Handle both string and object responses
+            if (typeof result === 'object' && result.response) {
+              finalResponse = result.response;
+              if (result.interactive) {
+                conversation.pendingInteractive = result.interactive;
+              }
+            } else {
+              finalResponse = result;
+              // Clear any pending interactive elements since we're moving to planning
+              delete conversation.pendingInteractive;
+            }
+          }
+        }
+      } else if (newPhase === PHASES.PLANNING) {
         if (phaseChanged) {
           // Just transitioned to planning - search services and generate itinerary
           await this.searchServicesForConversation(conversation);
-          finalResponse = await this.generateItineraryPresentation(conversation);
-        } else if (conversation.availableServices.length > 0) {
-          // Already in planning phase with services - handle user feedback on itinerary
-          const planningResult = await this.handlePlanningMode(conversation, userMessage, reduction);
-          finalResponse = planningResult.response;
-          newPhase = planningResult.newPhase;
-          conversation.phase = newPhase;
+          const result = await this.generateItineraryPresentation(conversation);
+          // Handle both string and object responses
+          if (typeof result === 'object' && result.response) {
+            finalResponse = result.response;
+            if (result.interactive) {
+              conversation.pendingInteractive = result.interactive;
+            }
+          } else {
+            finalResponse = result;
+          }
+            } else if (conversation.availableServices.length > 0) {
+      // Already in planning phase with services - handle user feedback on itinerary
+      // Check if we are in a guided day flow and the user clicked a card
+      const guidedHandled = await this.handleGuidedDayResponse(conversation, userMessage);
+      if (guidedHandled) {
+        finalResponse = guidedHandled.response;
+        // carry interactive if present
+        if (guidedHandled.interactive) conversation.pendingInteractive = guidedHandled.interactive;
+      } else {
+        const planningResult = await this.handlePlanningMode(conversation, userMessage, reduction);
+        finalResponse = planningResult.response;
+        newPhase = planningResult.newPhase;
+        conversation.phase = newPhase;
+        if (planningResult.interactive) {
+          conversation.pendingInteractive = planningResult.interactive;
         }
+      }
+    }
       }
     }
     
@@ -860,7 +927,7 @@ export class ChatHandler {
 
     const snapshot = this.exportSnapshot(conversation);
     
-    return {
+    const result = {
       response: finalResponse,
       phase: newPhase,
       facts: conversation.facts,
@@ -868,6 +935,14 @@ export class ChatHandler {
       itinerary: this.buildSidebarItinerary(conversation),
       snapshot
     };
+    
+    // Add interactive elements if present
+    if (conversation.pendingInteractive) {
+      result.interactive = conversation.pendingInteractive;
+      delete conversation.pendingInteractive; // Clean up after use
+    }
+    
+    return result;
   }
   
 
@@ -1331,16 +1406,18 @@ async generateItinerary(conversationData) {
         userPreferences
       );
 
+      const normalizedResponseText = (typeof responseText === 'object' && responseText?.response) ? responseText.response : responseText;
+
       if (DBG) {
         log(`[Day ${day}] response preview:`,
-          String(responseText).slice(0, 500).replace(/\n/g, '\\n') + (responseText.length > 500 ? '…' : '')
+          String(normalizedResponseText).slice(0, 500).replace(/\n/g, '\\n') + (String(normalizedResponseText).length > 500 ? '…' : '')
         );
       }
 
       itinerary.push({
         dayNumber: day,
         selectedServices: enrichedDayPlan.selectedServices,
-        text: responseText
+        text: normalizedResponseText
       });
     }
 
@@ -1517,7 +1594,7 @@ async generateItinerary(conversationData) {
   checkPhaseTransition(conversation, reduction) {
     const { facts } = conversation;
   
-    // From GATHERING to PLANNING
+    // From GATHERING to GUIDED_FIRST_DAY (instead of PLANNING)
     if (conversation.phase === PHASES.GATHERING) {
       // Check if destination is unavailable (user said no to Austin)
       if (facts.destination.value === "unavailable") {
@@ -1536,24 +1613,25 @@ async generateItinerary(conversationData) {
         return conversation.phase;
       }
     
-      // If the reducer says it's safe (it has asked about helpfuls), proceed.
+      // If the reducer says it's safe (it has asked about helpfuls), proceed to guided first day.
       if (reduction?.safe_transition === true) {
-        return PHASES.PLANNING;
+        return PHASES.GUIDED_FIRST_DAY;
       }
     
       // Fallback: legacy stricter gate (kept for safety)
       const helpfulFactsAddressed = [
         facts.wildnessLevel.status !== FIELD_STATUS.UNKNOWN,
-        // COMMENTED OUT: relationship fact check (can be re-enabled later if needed)
-        // facts.relationship.status !== FIELD_STATUS.UNKNOWN,
-        // COMMENTED OUT: interested activities fact check (can be re-enabled later if needed)
-        // facts.interestedActivities.status !== FIELD_STATUS.UNKNOWN,
-        // COMMENTED OUT: age range fact check (can be re-enabled later if needed)
-        // facts.ageRange.status !== FIELD_STATUS.UNKNOWN,
         facts.budget.status !== FIELD_STATUS.UNKNOWN
       ];
     
-      return helpfulFactsAddressed.every(Boolean) ? PHASES.PLANNING : conversation.phase;
+      return helpfulFactsAddressed.every(Boolean) ? PHASES.GUIDED_FIRST_DAY : conversation.phase;
+    }
+    
+    // From GUIDED_FIRST_DAY to PLANNING
+    if (conversation.phase === PHASES.GUIDED_FIRST_DAY) {
+      if (conversation.guidedFirstDay?.isComplete) {
+        return PHASES.PLANNING;
+      }
     }
     
     // Other phases don't automatically transition based on facts
@@ -1646,12 +1724,371 @@ async generateItinerary(conversationData) {
     });
   }
 
+  // NEW: Start guided first day experience
+  async startGuidedFirstDay(conversation) {
+    // Initialize guided first day state
+    conversation.guidedFirstDay = {
+      step: 'airport_pickup',
+      airportPickup: null,
+      eveningActivity: null,
+      isComplete: false
+    };
+
+    // initialize dayByDayPlanning for immediate sidebar updates
+    const totalDays = this.calculateDuration(conversation.facts.startDate?.value, conversation.facts.endDate?.value);
+    conversation.dayByDayPlanning = {
+      currentDay: 0,
+      totalDays: totalDays,
+      completedDays: [],
+      usedServices: new Set(),
+      isComplete: false
+    };
+
+    const airportQuestion = await this.askAirportPickupQuestion(conversation);
+    
+    // Ensure we return the interactive format properly
+    if (typeof airportQuestion === 'object' && airportQuestion.interactive) {
+      return airportQuestion;
+    }
+    
+    return airportQuestion;
+  }
+
+  // NEW: Ask airport pickup question with specific options
+  async askAirportPickupQuestion(conversation) {
+    const availableServices = conversation.availableServices || [];
+    const groupSize = conversation.facts?.groupSize?.value || 8;
+    
+    // Find the specific airport pickup options
+    const partyBusPickup = availableServices.find(s => 
+      s.name && s.name.toLowerCase().includes('party bus') && 
+      s.name.toLowerCase().includes('airport')
+    );
+    
+    const sprinterTour = availableServices.find(s => 
+      s.name && s.name.toLowerCase().includes('sprinter') && 
+      (s.name.toLowerCase().includes('bbq') || s.name.toLowerCase().includes('beer'))
+    );
+
+    if (!partyBusPickup || !sprinterTour) {
+      // Fallback if we can't find the specific services
+      return "I'm setting up your first day options. Let me find the best airport pickup and activity choices for you!";
+    }
+
+    // Calculate per-person pricing
+    const partyBusPerPerson = partyBusPickup.price_cad ? Math.round(partyBusPickup.price_cad / groupSize) : null;
+    const sprinterPerPerson = sprinterTour.price_cad ? Math.round(sprinterTour.price_cad / groupSize) : null;
+
+    return {
+      response: "Perfect! Let's plan your arrival day. Do you want to go straight to the house from the airport, or get the party started immediately with a BBQ & Beer Tour?",
+      interactive: {
+        type: 'guided_cards',
+        options: [
+          {
+            value: 'party_bus_pickup',
+            title: 'Party Bus to House',
+            description: partyBusPickup.itinerary_description || partyBusPickup.description || 'Get picked up in style with a party bus and head straight to your accommodation',
+            price_cad: partyBusPickup.price_cad,
+            price_per_person: partyBusPerPerson,
+            duration: partyBusPickup.duration_hours ? `${partyBusPickup.duration_hours}h` : '1h',
+            features: ['Airport Pickup', 'Party Bus', 'Direct to House', 'Group Transport'],
+            timeSlot: 'Afternoon'
+          },
+          {
+            value: 'sprinter_bbq_tour',
+            title: 'BBQ & Beer Tour',
+            description: sprinterTour.itinerary_description || sprinterTour.description || 'Start the party immediately with a BBQ and beer tour around Austin',
+            price_cad: sprinterTour.price_cad,
+            price_per_person: sprinterPerPerson,
+            duration: sprinterTour.duration_hours ? `${sprinterTour.duration_hours}h` : '4h',
+            features: ['Airport Pickup', 'BBQ Tour', 'Beer Tasting', 'Immediate Party Start'],
+            timeSlot: 'Afternoon'
+          }
+        ]
+      }
+    };
+  }
+
+  // NEW: Ask evening activity question
+  async askEveningActivityQuestion(conversation) {
+    const availableServices = conversation.availableServices || [];
+    const groupSize = conversation.facts?.groupSize?.value || 8;
+    
+    // Find relevant services for evening options
+    const barService = availableServices.find(s => 
+      s.category === 'bar' || (s.name && s.name.toLowerCase().includes('bar'))
+    );
+    const steakhouseService = availableServices.find(s => 
+      s.name && s.name.toLowerCase().includes('steak')
+    );
+    const stripClubService = availableServices.find(s => 
+      s.category === 'strip_club' || (s.name && s.name.toLowerCase().includes('gentlemen'))
+    );
+
+    const options = [
+      {
+        value: 'bar_hopping',
+        title: 'Bar Hopping',
+        description: barService?.itinerary_description || barService?.description || 'Hit the best bars in Austin for an epic night out',
+        price_cad: barService?.price_cad,
+        price_per_person: barService?.price_cad ? Math.round(barService.price_cad / groupSize) : null,
+        duration: barService?.duration_hours ? `${barService.duration_hours}h` : '3-4h',
+        features: ['Multiple Bars', 'Group Activities', 'Local Favorites', 'Night Out'],
+        timeSlot: 'Night'
+      },
+      {
+        value: 'steakhouse',
+        title: 'Steakhouse Dinner',
+        description: steakhouseService?.itinerary_description || steakhouseService?.description || 'Premium steakhouse experience with the best cuts in Austin',
+        price_cad: steakhouseService?.price_cad,
+        price_per_person: steakhouseService?.price_cad ? Math.round(steakhouseService.price_cad / groupSize) : null,
+        duration: steakhouseService?.duration_hours ? `${steakhouseService.duration_hours}h` : '2-3h',
+        features: ['Premium Steaks', 'Group Dining', 'Fine Dining', 'Celebration Meal'],
+        timeSlot: 'Evening'
+      },
+      {
+        value: 'strip_club',
+        title: 'Strip Club',
+        description: stripClubService?.itinerary_description || stripClubService?.description || 'Premium gentlemen\'s club experience for the bachelor party',
+        price_cad: stripClubService?.price_cad,
+        price_per_person: stripClubService?.price_cad ? Math.round(stripClubService.price_cad / groupSize) : null,
+        duration: stripClubService?.duration_hours ? `${stripClubService.duration_hours}h` : '3-4h',
+        features: ['VIP Access', 'Bachelor Party', 'Entertainment', 'Late Night'],
+        timeSlot: 'Night'
+      },
+      {
+        value: 'open_evening',
+        title: 'Keep it Open',
+        description: 'Leave your evening flexible and decide what you want to do based on how you\'re feeling',
+        price_cad: null,
+        price_per_person: null,
+        duration: 'Flexible',
+        features: ['Flexible Plans', 'Spontaneous', 'Game Time Decision', 'No Commitment'],
+        timeSlot: 'Evening'
+      }
+    ];
+
+    return {
+      response: "Great choice! Now, what do you want to do for your evening after that?",
+      interactive: {
+        type: 'guided_cards',
+        options: options
+      }
+    };
+  }
+
+  // NEW: Handle guided first day user responses
+  async handleGuidedFirstDay(conversation, userMessage, reduction) {
+    const guidedState = conversation.guidedFirstDay;
+    
+    if (guidedState.step === 'airport_pickup') {
+      // Handle airport pickup selection
+      if (userMessage === 'party_bus_pickup' || userMessage === 'sprinter_bbq_tour') {
+        guidedState.airportPickup = userMessage;
+        guidedState.step = 'evening_activity';
+
+        // Update current day plan immediately for sidebar (no pending state)
+        try {
+          const partialPlan = await this.buildGuidedFirstDayPlan(conversation, conversation.availableServices || []);
+          conversation.dayByDayPlanning ||= { currentDay: 0, totalDays: this.calculateDuration(conversation.facts.startDate?.value, conversation.facts.endDate?.value), completedDays: [], usedServices: new Set(), isComplete: false };
+          conversation.dayByDayPlanning.currentDayPlan = partialPlan;
+        } catch (_) {}
+        
+        const response = await this.askEveningActivityQuestion(conversation);
+        return {
+          response: response.response,
+          interactive: response.interactive,
+          newPhase: PHASES.GUIDED_FIRST_DAY
+        };
+      }
+    } else if (guidedState.step === 'evening_activity') {
+      // Handle evening activity selection
+      if (['bar_hopping', 'steakhouse', 'strip_club', 'open_evening'].includes(userMessage)) {
+        guidedState.eveningActivity = userMessage;
+
+        // Update plan immediately to reflect selection
+        try {
+          const plan = await this.buildGuidedFirstDayPlan(conversation, conversation.availableServices || []);
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+        guidedState.isComplete = true;
+        
+        return {
+          response: "Perfect! I'm putting together your first day based on your choices.",
+          newPhase: PHASES.PLANNING
+        };
+      }
+    }
+    
+    // Fallback for unrecognized responses
+    return {
+      response: "I didn't catch that. Please use the buttons to make your selection.",
+      newPhase: PHASES.GUIDED_FIRST_DAY
+    };
+  }
+
+  // NEW: Generate itinerary presentation using guided choices
+  async generateGuidedItineraryPresentation(conversation) {
+    const { facts, guidedFirstDay } = conversation;
+    const availableServices = conversation.availableServices || [];
+    
+    try {
+      console.log('🎯 Starting guided itinerary generation...');
+      
+      // Initialize day-by-day planning
+      const totalDays = this.calculateDuration(facts.startDate?.value, facts.endDate?.value);
+      conversation.dayByDayPlanning = {
+        currentDay: 0,
+        totalDays: totalDays,
+        completedDays: [],
+        usedServices: new Set(),
+        isComplete: false
+      };
+      
+      // Build first day plan based on guided choices
+      const firstDayPlan = await this.buildGuidedFirstDayPlan(conversation, availableServices);
+      
+      // Store the day plan
+      conversation.dayByDayPlanning.currentDayPlan = firstDayPlan;
+      
+      // Generate response text
+      const userPreferences = this.transformConversationFacts(facts);
+      const dayInfo = {
+        dayNumber: 1,
+        totalDays: totalDays,
+        timeSlots: this.getTimeSlotsForDay(1, totalDays),
+        isFirstDay: true,
+        isLastDay: totalDays === 1
+      };
+      
+      const result = await this.aiResponseGenerator.generateItineraryResponse(
+        firstDayPlan,
+        dayInfo,
+        userPreferences,
+        { short: true }
+      );
+      
+      // Handle both string and object responses
+      return typeof result === 'string' ? result : result;
+      
+    } catch (error) {
+      console.error('Error in guided itinerary presentation:', error);
+      return this.fallbackItineraryPresentation(conversation);
+    }
+  }
+
+  // NEW: Build first day plan based on guided choices
+  async buildGuidedFirstDayPlan(conversation, availableServices) {
+    const { guidedFirstDay } = conversation;
+    const selectedServices = [];
+    
+    // Add airport pickup service
+    if (guidedFirstDay.airportPickup === 'party_bus_pickup') {
+      const partyBusService = availableServices.find(s => 
+        s.name && s.name.toLowerCase().includes('party bus') && 
+        s.name.toLowerCase().includes('airport')
+      );
+      if (partyBusService) {
+        selectedServices.push({
+          serviceId: String(partyBusService.id),
+          serviceName: partyBusService.itinerary_name || partyBusService.name,
+          timeSlot: 'afternoon',
+          reason: 'Airport pickup in style',
+          estimatedDuration: '1 hour',
+          groupSuitability: 'Perfect for groups',
+          price_cad: partyBusService.price_cad,
+          price_usd: partyBusService.price_usd,
+          duration_hours: partyBusService.duration_hours
+        });
+      }
+    } else if (guidedFirstDay.airportPickup === 'sprinter_bbq_tour') {
+      const sprinterService = availableServices.find(s => 
+        s.name && s.name.toLowerCase().includes('sprinter') && 
+        (s.name.toLowerCase().includes('bbq') || s.name.toLowerCase().includes('beer'))
+      );
+      if (sprinterService) {
+        selectedServices.push({
+          serviceId: String(sprinterService.id),
+          serviceName: sprinterService.itinerary_name || sprinterService.name,
+          timeSlot: 'afternoon',
+          reason: 'Start the party with BBQ and beer',
+          estimatedDuration: '3-4 hours',
+          groupSuitability: 'Perfect for groups',
+          price_cad: sprinterService.price_cad,
+          price_usd: sprinterService.price_usd,
+          duration_hours: sprinterService.duration_hours
+        });
+      }
+    }
+    
+    // Add evening activity based on choice
+    if (guidedFirstDay.eveningActivity === 'bar_hopping') {
+      const barService = availableServices.find(s => 
+        s.category === 'bar' || (s.name && s.name.toLowerCase().includes('bar'))
+      );
+      if (barService) {
+        selectedServices.push({
+          serviceId: String(barService.id),
+          serviceName: barService.itinerary_name || barService.name,
+          timeSlot: 'night',
+          reason: 'Bar hopping night out',
+          estimatedDuration: '3-4 hours',
+          groupSuitability: 'Great for groups',
+          price_cad: barService.price_cad,
+          price_usd: barService.price_usd,
+          duration_hours: barService.duration_hours
+        });
+      }
+    } else if (guidedFirstDay.eveningActivity === 'steakhouse') {
+      const steakhouseService = availableServices.find(s => 
+        s.name && s.name.toLowerCase().includes('steak')
+      );
+      if (steakhouseService) {
+        selectedServices.push({
+          serviceId: String(steakhouseService.id),
+          serviceName: steakhouseService.itinerary_name || steakhouseService.name,
+          timeSlot: 'evening',
+          reason: 'Premium steakhouse dinner',
+          estimatedDuration: '2-3 hours',
+          groupSuitability: 'Perfect for groups',
+          price_cad: steakhouseService.price_cad,
+          price_usd: steakhouseService.price_usd,
+          duration_hours: steakhouseService.duration_hours
+        });
+      }
+    } else if (guidedFirstDay.eveningActivity === 'strip_club') {
+      const stripClubService = availableServices.find(s => 
+        s.category === 'strip_club' || (s.name && s.name.toLowerCase().includes('gentlemen'))
+      );
+      if (stripClubService) {
+        selectedServices.push({
+          serviceId: String(stripClubService.id),
+          serviceName: stripClubService.itinerary_name || stripClubService.name,
+          timeSlot: 'night',
+          reason: 'Premium gentlemen\'s club experience',
+          estimatedDuration: '3-4 hours',
+          groupSuitability: 'Adult entertainment',
+          price_cad: stripClubService.price_cad,
+          price_usd: stripClubService.price_usd,
+          duration_hours: stripClubService.duration_hours
+        });
+      }
+    }
+    // For 'open_evening', we don't add a specific service
+    
+    return {
+      selectedServices: selectedServices,
+      dayTheme: 'Arrival Day',
+      logisticsNotes: 'First day of the bachelor party'
+    };
+  }
+
   // Generate and present day-by-day itinerary when transitioning to planning
   async generateItineraryPresentation(conversation) {
     const { facts } = conversation;
     
     try {
-      console.log('ðŸŽ¯ Starting day-by-day itinerary generation...');
+      console.log('🎯 Starting day-by-day itinerary generation...');
       
       // Search for available services first using conversation-specific method
       await this.searchServicesForConversation(conversation);
@@ -1670,7 +2107,7 @@ async generateItinerary(conversationData) {
       const userPreferences = this.transformConversationFacts(facts);
       const allServices = conversation.availableServices || [];
       
-      console.log(`ðŸŽ¯ Planning Day 1 with ${allServices.length} available services`);
+      console.log(`🎯 Planning Day 1 with ${allServices.length} available services`);
       
       const dayInfo = {
         dayNumber: 1,
@@ -1701,13 +2138,14 @@ async generateItinerary(conversationData) {
       // Keep the enriched plan in conversation state
       conversation.dayByDayPlanning.currentDayPlan = enrichedDayPlan;      
       // AI generates engaging response text for Day 1
-      const responseText = await this.aiResponseGenerator.generateItineraryResponse(
+      const result = await this.aiResponseGenerator.generateItineraryResponse(
         enrichedDayPlan,
         dayInfo,
         userPreferences
       );
       
-      return responseText;
+      // Handle both string and object responses
+      return typeof result === 'string' ? result : result;
       
     } catch (error) {
       console.error('Error in AI itinerary presentation:', error);
@@ -1801,7 +2239,7 @@ async generateItinerary(conversationData) {
     
     // Show the planned activities
     activities.forEach(activity => {
-      presentation += `Ã¢â‚¬Â¢ ${activity.time}: ${activity.description}\n`;
+      presentation += `💡 ${activity.time}: ${activity.description}\n`;
     });
     
     // Show alternative options if available
@@ -1875,18 +2313,24 @@ async generateItinerary(conversationData) {
     }
     
     // Continue with planning logic
-    const response = await this.handleItineraryFeedback(conversation, userMessage, reduction);
+    const result = await this.handleItineraryFeedback(conversation, userMessage, reduction);
+    
+    // Handle both string and object responses
+    const response = typeof result === 'string' ? result : result.response;
+    const interactive = typeof result === 'object' ? result.interactive : null;
     
     // Check if we just completed planning
     if (conversation.dayByDayPlanning?.isComplete) {
       return {
         response: response,
+        interactive: interactive,
         newPhase: PHASES.STANDBY
       };
     }
     
     return {
       response: response,
+      interactive: interactive,
       newPhase: PHASES.PLANNING
     };
   }
@@ -1900,6 +2344,29 @@ async generateItinerary(conversationData) {
   
   async handleItineraryFeedback(conversation, userMessage, reduction) {
     const { dayByDayPlanning } = conversation;
+    
+    // Handle button responses for day confirmation
+    if (userMessage === 'next_day_yes') {
+      // User confirmed moving to next day - treat as approval_next
+      const mockReduction = { intent_type: 'approval_next', target_day_index: null };
+      return await this.handleItineraryFeedback(conversation, 'yes, next day', mockReduction);
+    }
+    
+    if (userMessage === 'next_day_no') {
+      // User wants to make changes - ask what they'd like to modify
+      return "What would you like to change about this day?";
+    }
+    
+    if (userMessage === 'finalize_yes') {
+      // User confirmed finalizing - mark planning complete
+      dayByDayPlanning.isComplete = true;
+      return this.generateAllDaysScheduledMessage(conversation);
+    }
+    
+    if (userMessage === 'finalize_no') {
+      // User wants to make changes to final day - ask what they'd like to modify
+      return "What would you like to change about the itinerary?";
+    }
     
     // Handle options-style questions during planning
     if (this.isOptionsStyleQuestion(userMessage)) {
@@ -1971,6 +2438,14 @@ async generateItinerary(conversationData) {
       // Advance to the chosen day and build its plan
       dayByDayPlanning.currentDay = nextDayIndex;
 
+      // NEW: Guided flow for Friday/Saturday
+      const guidedInit = await this.maybeStartGuidedDay(conversation, nextDayIndex);
+      if (guidedInit) {
+        // Store interactive for frontend and return prompt
+        conversation.pendingInteractive = guidedInit.interactive;
+        return guidedInit.response;
+      }
+
       try {
         const userPreferences = this.transformConversationFacts(conversation.facts);
         const allServices = conversation.availableServices || [];
@@ -1992,7 +2467,8 @@ async generateItinerary(conversationData) {
         );
 
         dayByDayPlanning.currentDayPlan = dayPlan;
-        return await this.aiResponseGenerator.generateItineraryResponse(dayPlan, dayInfo, userPreferences);
+        const result = await this.aiResponseGenerator.generateItineraryResponse(dayPlan, dayInfo, userPreferences);
+        return typeof result === 'string' ? result : result;
       } catch (e) {
         console.error('[approval_next][select/generate error]', e?.stack || e);
         return `Awesome! Let's plan day ${nextDayIndex + 1}. I'm putting together some epic options for you guys!`;
@@ -2027,11 +2503,12 @@ async generateItinerary(conversationData) {
           isFirstDay: currentIndex === 0,
           isLastDay: currentIndex + 1 === totalDays
         };
-        return await this.aiResponseGenerator.generateItineraryResponse(
+        const result = await this.aiResponseGenerator.generateItineraryResponse(
           dayByDayPlanning.currentDayPlan,
           dayInfo,
           userPreferences
         );
+        return typeof result === 'string' ? result : result;
       }
 
       // Navigate WITHOUT approving: stash current draft
@@ -2044,6 +2521,16 @@ async generateItinerary(conversationData) {
 
       // Load a draft if present; otherwise build a fresh plan
       let nextPlan = dayByDayPlanning.drafts[targetIndex];
+
+      // NEW: Guided flow for Friday/Saturday when no draft exists
+      if (!nextPlan) {
+        const guidedInit = await this.maybeStartGuidedDay(conversation, targetIndex);
+        if (guidedInit) {
+          conversation.pendingInteractive = guidedInit.interactive;
+          return guidedInit.response;
+        }
+      }
+
       if (!nextPlan) {
         const dayInfo = {
           dayNumber: targetIndex + 1,
@@ -2074,7 +2561,8 @@ async generateItinerary(conversationData) {
         isFirstDay: targetIndex === 0,
         isLastDay: targetIndex + 1 === totalDays
       };
-      return await this.aiResponseGenerator.generateItineraryResponse(nextPlan, dayInfo, userPreferences);
+      const result = await this.aiResponseGenerator.generateItineraryResponse(nextPlan, dayInfo, userPreferences);
+      return typeof result === 'string' ? result : result;
     }
 
     
@@ -2244,8 +2732,7 @@ async generateItinerary(conversationData) {
     if (pending && Array.isArray(pending.selectedServices) && days[currentIdx]) {
       const pendingServices = pending.selectedServices.map(s => ({
         ...s,
-        confirmed: false,
-        pending: true
+        confirmed: true
       }));
       const confirmedForDay = days[currentIdx].selectedServices.filter(s => s.confirmed);
       days[currentIdx] = {
@@ -2304,24 +2791,33 @@ async generateItinerary(conversationData) {
       `All set! I ${changeType} ${what} on Day ${dayNumber}.`
     ];
     
-    // Add appropriate follow-up based on whether this is the last day
-    const followUps = isLastDay ? [
-      " Want to finalize the itinerary?",
-      " Ready to lock it in?",
-      " We can finalize now—good to go?",
-      " Any last tweaks, or should I finalize?"
-    ] : [
-      " Ready for Day " + (dayNumber + 1) + "?",
-      " Let's plan Day " + (dayNumber + 1) + "?",
-      " Sound good to move to Day " + (dayNumber + 1) + "?",
-      " Want to plan Day " + (dayNumber + 1) + " now?"
-    ];
-    
     // Rotate through different confirmations to avoid repetition
     const baseIndex = Math.floor(Math.random() * baseConfirmations.length);
-    const followIndex = Math.floor(Math.random() * followUps.length);
+    const baseResponse = baseConfirmations[baseIndex];
     
-    return baseConfirmations[baseIndex] + followUps[followIndex];
+    if (isLastDay) {
+      return {
+        response: baseResponse + " Ready to finalize the itinerary?",
+        interactive: {
+          type: 'buttons',
+          buttons: [
+            { text: 'Yes, finalize', value: 'finalize_yes', style: 'primary' },
+            { text: 'No, make changes', value: 'finalize_no', style: 'secondary' }
+          ]
+        }
+      };
+    } else {
+      return {
+        response: baseResponse + ` Ready for Day ${dayNumber + 1}?`,
+        interactive: {
+          type: 'buttons',
+          buttons: [
+            { text: 'Yes, next day', value: 'next_day_yes', style: 'primary' },
+            { text: 'No, make changes', value: 'next_day_no', style: 'secondary' }
+          ]
+        }
+      };
+    }
   }
 
   async handleStandbyInteraction(conversation, userMessage, reduction) {
@@ -2421,13 +2917,13 @@ async generateItinerary(conversationData) {
     const totalDays = conversation.dayByDayPlanning.totalDays
       || this.calculateDuration(conversation.facts.startDate?.value, conversation.facts.endDate?.value)
       || 1;
-  
+
     // Try to detect a target day; default to Day 1 if none mentioned
     const dayMatch = userMessage.toLowerCase().match(/day\s*(\d+)/i);
     const targetIndex = dayMatch
       ? Math.min(Math.max(parseInt(dayMatch[1], 10) - 1, 0), totalDays - 1)
       : 0;
-  
+
     // Convert saved day into a plan shape usable by the selector
     const completed = conversation.selectedServices?.[targetIndex] || {};
     const currentDayPlan = {
@@ -2442,7 +2938,7 @@ async generateItinerary(conversationData) {
       dayTheme: completed.dayTheme || '',
       logisticsNotes: completed.logisticsNotes || ''
     };
-  
+
     const userPreferences = this.transformConversationFacts(conversation.facts);
     const allServices = conversation.availableServices || [];
     const dayInfo = {
@@ -2452,16 +2948,16 @@ async generateItinerary(conversationData) {
       isFirstDay: targetIndex === 0,
       isLastDay: targetIndex + 1 === totalDays
     };
-  
+
     // Parse edit directives
     const editDirectives =
       (await this.inferEditDirectives(userMessage, currentDayPlan, userPreferences, dayInfo)) ||
       this.heuristicEditDirectives(userMessage, allServices, dayInfo);
-  
+
     if (editDirectives?.ops?.length) {
       try {
         const usedServicesContext = this.getUsedServicesContext(conversation);
-  
+
         const rewritten = await this.aiSelector.rewriteDayWithEdits(
           allServices, 
           userPreferences, 
@@ -2474,14 +2970,14 @@ async generateItinerary(conversationData) {
             userExplicitRequest: userMessage
           }
         );
-  
+
         // Save the rewritten day back into the itinerary
         if (!Array.isArray(conversation.selectedServices)) conversation.selectedServices = [];
         
         // Update the used services tracking
         const oldServices = conversation.selectedServices[targetIndex]?.selectedServices || [];
         this.ensureUsedServicesSet(conversation);
-  
+
         (oldServices || []).forEach(service => {
           if (service?.serviceId) {
             conversation.dayByDayPlanning.usedServices.delete(service.serviceId);
@@ -2496,19 +2992,19 @@ async generateItinerary(conversationData) {
           dayTheme: rewritten.dayTheme || '',
           logisticsNotes: rewritten.logisticsNotes || ''
         };
-  
+
         // NEW: Generate a simple edit confirmation instead of full day presentation
         return this.generateEditConfirmation(editDirectives, userMessage, targetIndex + 1);
-  
+
       } catch (e) {
         console.error('Standby edit failed:', e);
         return `Updated Day ${targetIndex + 1}. Want to see the new lineup or tweak anything else?`;
       }
     }
-  
+
     return `Tell me what to change and which day (e.g., "Swap dinner on Day ${Math.min(2, totalDays)} for a steakhouse" or "Move the club later").`;
   }
-  
+
   // NEW: Add this method to generate simple edit confirmations
   generateEditConfirmation(editDirectives, userMessage, dayNumber) {
     const ops = editDirectives?.ops || [];
@@ -2543,10 +3039,11 @@ async generateItinerary(conversationData) {
     const index = Math.floor(Math.random() * confirmations.length);
     return confirmations[index];
   }
+
   // NEW: Handle general questions with full context
   async handleGeneralQuestion(conversation, userMessage, reduction) {
     const fullContext = this.buildFullContextForQuestion(conversation);
-  
+
     // Try to load & render the external template first
     let questionPrompt;
     try {
@@ -2575,7 +3072,7 @@ async generateItinerary(conversationData) {
   - Keep responses focused and not overly long (under 200 words)
   - No emojis or excessive enthusiasm`;
     }
-  
+
     try {
       const response = await this.openai.chat.completions.create({
         model: "gpt-4o",
@@ -2590,14 +3087,14 @@ async generateItinerary(conversationData) {
         temperature: 0.6,
         max_tokens: 400,
       });
-  
+
       return response.choices[0].message.content;
     } catch (error) {
       console.error("Error handling general question:", error);
       return "I'm having trouble accessing that information right now. Can you be more specific about what you'd like to know?";
     }
   }
-  
+
   // NEW: Build comprehensive context for answering questions
   buildFullContextForQuestion(conversation) {
     const facts = conversation.facts;
@@ -2616,7 +3113,7 @@ async generateItinerary(conversationData) {
   - Interested Activities: ${facts.interestedActivities?.value?.join(', ') || 'None specified'}
   - Age Range: ${facts.ageRange?.value || 'Not specified'}
   - Relationship: ${facts.relationship?.value || 'Not specified'}`;
-  
+    
     // Format current itinerary
     const itineraryInfo = itinerary.length > 0 ? `
   CURRENT ITINERARY:
@@ -2627,7 +3124,7 @@ async generateItinerary(conversationData) {
     ).join('\n');
     return `Day ${day.dayNumber}:\n${serviceList || '  - No services selected'}`;
   }).join('\n\n')}` : '\nCURRENT ITINERARY: No itinerary planned yet';
-  
+    
     // Format available services by category
     const servicesByCategory = this.groupServicesByCategory(availableServices);
     const servicesInfo = Object.keys(servicesByCategory).length > 0 ? `
@@ -2638,47 +3135,15 @@ async generateItinerary(conversationData) {
     ).join('\n');
     return `${category.toUpperCase()} (${services.length} total):\n${serviceList}${services.length > 8 ? '\n  - ... and more options available' : ''}`;
   }).join('\n\n')}` : '\nAVAILABLE SERVICES: No services loaded';
-  
+    
     return `${basicInfo}\n${itineraryInfo}\n${servicesInfo}`;
-  }
-
-  describeItineraryAtAGlance(conversation) {
-    const { facts } = conversation;
-    const itinerary = Array.isArray(conversation.selectedServices) ? conversation.selectedServices : [];
-    const formatDate = (iso) => {
-      if (!iso) return null;
-      const d = /^\d{4}-\d{2}-\d{2}$/.test(iso)
-        ? new Date(+iso.slice(0,4), +iso.slice(5,7)-1, +iso.slice(8,10), 12, 0, 0)
-        : new Date(iso);
-      const includeYear = d.getFullYear() > new Date().getFullYear();
-      const base = { weekday: 'short', month: 'short', day: 'numeric' };
-      return d.toLocaleDateString('en-US', includeYear ? { ...base, year: 'numeric' } : base);
-    };
-    const start = facts.startDate?.value ? new Date(facts.startDate.value) : null;
-  
-    const dayLabel = (i) => {
-      if (!start) return `Day ${i + 1}`;
-      const d = new Date(start);
-      d.setDate(d.getDate() + i);
-      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    };
-  
-    const prettySlot = (s) => ({afternoon:'Afternoon', evening:'Evening', night:'Night', late_night:'Late Night'})[s] || s;
-  
-    let text = `Here's the plan at a glance${formatDate(facts.startDate?.value) ? ` (starting ${formatDate(facts.startDate.value)})` : ''}:\n`;
-    itinerary.forEach((day, i) => {
-      const entries = (day?.selectedServices || []).map(s => `${prettySlot(s.timeSlot)}: ${s.serviceName}`).join(', ');
-      text += `\n• ${dayLabel(i)} — ${entries || 'TBD'}`;
-    });
-    text += `\n\nAsk away—timing, prices, swaps—whatever you want to adjust.`;
-    return text;
   }
 
   async inferEditDirectives(userMessage, currentDayPlan, userPreferences, dayInfo) {
     try {
       const openai = this.openai || this.aiSelector?.openai;
       if (!openai) return null;
-  
+
       const functionSchema = {
         name: "propose_plan_edits",
         description: "Turn free-form feedback into concrete edits to the current day",
@@ -2699,12 +3164,12 @@ async generateItinerary(conversationData) {
                   target_time: { type: "string", enum: ["afternoon","evening","night","late_night"], nullable: true },
                   target_name: { type: "string", nullable: true },
                   target_category: { type: "string", nullable: true },
-                  target_service_id: { type: "string", nullable: true }, // NEW: for specific service targeting
+                  target_service_id: { type: "string", nullable: true },
                   // payload
                   keywords: { type: "array", items: { type: "string" }, nullable: true },
                   category_hint: { type: "string", nullable: true },
                   new_time: { type: "string", enum: ["afternoon","evening","night","late_night"], nullable: true },
-                  new_service_name: { type: "string", nullable: true }, // NEW: for substitutions
+                  new_service_name: { type: "string", nullable: true },
                   sequence: { type: "array", items: { type: "string" }, nullable: true },
                   constraints: { type: "object", additionalProperties: true, nullable: true },
                   notes: { type: "string", nullable: true }
@@ -2717,7 +3182,7 @@ async generateItinerary(conversationData) {
           required: ["ops"]
         }
       };
-  
+
       const prompt = `
   You are editing DAY ${dayInfo.dayNumber} of a bachelor-party itinerary.
   User feedback: "${userMessage}".
@@ -2737,12 +3202,12 @@ async generateItinerary(conversationData) {
   - Look for phrases like "swap", "change to", "instead", "rather than"
   
   Example substitutions:
-  - "club access instead of bottle service" â†' substitute_service with target_name="bottle service", new_service_name="club access"
-  - "just do the basic entry" â†' substitute_service if there's currently a premium service
+  - "club access instead of bottle service" → substitute_service with target_name="bottle service", new_service_name="club access"
+  - "just do the basic entry" → substitute_service if there's currently a premium service
   
   Return structured edits (ops). Prefer minimal-change edits that respect the day's natural flow.
   `;
-  
+
       const res = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -2754,7 +3219,7 @@ async generateItinerary(conversationData) {
         temperature: 0.3,
         max_tokens: 800
       });
-  
+
       const fc = res.choices?.[0]?.message?.function_call;
       if (!fc?.arguments) return null;
       const parsed = JSON.parse(fc.arguments);
@@ -2764,11 +3229,11 @@ async generateItinerary(conversationData) {
       return null;
     }
   }
-  
+
   // Heuristic fallback if LLM parsing fails (keyword + category sniffing)
   heuristicEditDirectives(userMessage, allServices, dayInfo) {
     const msg = (userMessage||'').toLowerCase();
-  
+
     // Try to detect any service-like noun in the message by scanning catalog
     const catalogKeywords = new Set();
     for (const s of allServices) {
@@ -2776,26 +3241,26 @@ async generateItinerary(conversationData) {
       if (s.category) catalogKeywords.add(String(s.category).toLowerCase());
       if (s.type) catalogKeywords.add(String(s.type).toLowerCase());
     }
-  
+
     const found = [];
     for (const kw of catalogKeywords) {
       if (kw.length >= 4 && msg.includes(kw)) found.push(kw);
     }
     if (!found.length) return null;
-  
+
     // Default: add the first matched thing into a sensible slot (night if nightlife-like, else last available)
     const nightlifeHints = ['club','bar','strip'];
     const wantsNightlife = nightlifeHints.some(h => msg.includes(h));
     const preferred_time = wantsNightlife
       ? (dayInfo.timeSlots.includes('night') ? 'night' : (dayInfo.timeSlots.includes('late_night') ? 'late_night' : dayInfo.timeSlots.slice(-1)[0]))
       : dayInfo.timeSlots.slice(-1)[0];
-  
+
     return {
       ops: [{ op: 'add_activity', keywords: found.slice(0,3), category_hint: null, target_time: preferred_time, notes: 'heuristic add' }],
       confidence: 0.55
     };
   }
-  
+
   // Apply directives locally if LLM rewrite fails
   applyEditDirectivesLocally(currentDayPlan, directives, allServices, dayInfo) {
     // --- base clone ---
@@ -3269,7 +3734,7 @@ async searchAvailableServices(destination, groupSize, preferences = {}) {
       city_name: destination,
       service_type: serviceType,
       group_size: groupSize,
-      max_results: 10
+      max_results: 50
     });
 
     if (res?.services?.length) {
@@ -3311,7 +3776,7 @@ async searchServicesForConversation(conversation) {
         city_name: destination,
         service_type: serviceType,
         group_size: groupSize,
-        max_results: 10
+        max_results: 50
       });
 
       if (res?.services?.length) {
@@ -3935,5 +4400,503 @@ async searchServicesForConversation(conversation) {
     const options = this.selectTopServicesByIntent(conversation.availableServices || [], intent, 5);
     if (!options.length) return `I didn't find great matches for that yet. Want me to cast a wider net or try a different vibe?`;
     return await this.presentOptions(conversation, intent, options);
+  }
+
+  // === Guided day helpers (Friday/Saturday) ===
+  dayOfWeekAtIndex(conversation, dayIndex) {
+    const start = this.toLocalDate(conversation?.facts?.startDate?.value);
+    if (!start) return null;
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate() + dayIndex, 12, 0, 0);
+    return d.getDay(); // 0=Sun..6=Sat
+  }
+
+  async maybeStartGuidedDay(conversation, dayIndex) {
+    const dow = this.dayOfWeekAtIndex(conversation, dayIndex);
+    if (dow == null) return null;
+    if (dow === 5) { // Friday
+      return await this.promptGuidedFriday(conversation, dayIndex);
+    }
+    if (dow === 6) { // Saturday
+      return await this.promptGuidedSaturday(conversation, dayIndex);
+    }
+    return null;
+  }
+
+  async promptGuidedFriday(conversation, dayIndex) {
+    const groupSize = conversation.facts?.groupSize?.value || 8;
+    const svc = conversation.availableServices || [];
+
+    // Morning: catering (Breakfast Taco Catering) or daytime gun activity
+    const breakfast = svc.find(s => /breakfast\s*taco/i.test(s.name || ''));
+    const gunRange = svc.find(s => /(gun|range|shoot|clay|skeet)/i.test(`${s.name||''} ${s.description||''}`));
+
+    const morningOptions = [];
+    if (breakfast) morningOptions.push({
+      value: 'fri_morning_catering',
+      title: 'Breakfast Taco Catering',
+      description: breakfast.itinerary_description || breakfast.description || 'Fuel up with Austin breakfast tacos at the house',
+      price_cad: breakfast.price_cad,
+      price_per_person: breakfast.price_cad ? Math.round(breakfast.price_cad / groupSize) : null,
+      duration: breakfast.duration_hours ? `${breakfast.duration_hours}h` : '1-2h',
+      features: ['At the House', 'Group-Friendly', 'Austin Tacos'],
+      timeSlot: 'Morning'
+    });
+    if (gunRange) morningOptions.push({
+      value: 'fri_morning_activity',
+      title: 'Daytime Shooting Activity',
+      description: gunRange.itinerary_description || gunRange.description || 'Head out for gun range / clay shooting / hog hunting',
+      price_cad: gunRange.price_cad,
+      price_per_person: gunRange.price_cad ? Math.round(gunRange.price_cad / groupSize) : null,
+      duration: gunRange.duration_hours ? `${gunRange.duration_hours}h` : '3-4h',
+      features: ['Outdoors', 'Adrenaline', 'Group Activity'],
+      timeSlot: 'Afternoon'
+    });
+
+    if (!morningOptions.length) return null;
+
+    // Build sub-options for shooting activity
+    const clay = svc.find(s => /(clay|skeet)/i.test(`${s.name||''} ${s.description||''}`));
+    const range = svc.find(s => /(gun|range)/i.test(`${s.name||''} ${s.description||''}`));
+    const hog = svc.find(s => /(hog|hunt|hunting)/i.test(`${s.name||''} ${s.description||''}`));
+
+    const shootingSubOptions = [];
+    if (clay) shootingSubOptions.push({
+      value: 'fri_morning_activity_clay',
+      title: 'Clay Shooting',
+      description: clay.itinerary_description || clay.description || 'Clay/skeet shooting session',
+      price_cad: clay.price_cad,
+      price_per_person: clay.price_cad ? Math.round(clay.price_cad / groupSize) : null,
+      duration: clay.duration_hours ? `${clay.duration_hours}h` : '2-3h',
+      features: ['Outdoors', 'Team Challenge'],
+      timeSlot: 'Afternoon'
+    });
+    if (range) shootingSubOptions.push({
+      value: 'fri_morning_activity_range',
+      title: 'Gun Range',
+      description: range.itinerary_description || range.description || 'Indoor/outdoor gun range session',
+      price_cad: range.price_cad,
+      price_per_person: range.price_cad ? Math.round(range.price_cad / groupSize) : null,
+      duration: range.duration_hours ? `${range.duration_hours}h` : '2-3h',
+      features: ['Range', 'Instructor'],
+      timeSlot: 'Afternoon'
+    });
+    if (hog) shootingSubOptions.push({
+      value: 'fri_morning_activity_hog',
+      title: 'Hog Hunting',
+      description: hog.itinerary_description || hog.description || 'Guided hog hunting experience',
+      price_cad: hog.price_cad,
+      price_per_person: hog.price_cad ? Math.round(hog.price_cad / groupSize) : null,
+      duration: hog.duration_hours ? `${hog.duration_hours}h` : '4-6h',
+      features: ['Guided', 'Outdoors'],
+      timeSlot: 'Afternoon'
+    });
+
+    // Evening dinner: at house or steakhouse
+    const steak = svc.find(s => /steak/i.test(s.name || ''));
+    const dinnerOptions = [
+      {
+        value: 'fri_dinner_house',
+        title: 'Dinner at the House',
+        description: 'Keep it easy at the house with food and drinks',
+        price_cad: null,
+        price_per_person: null,
+        duration: 'Flexible',
+        features: ['Chill Vibes', 'Flexible Timing', 'No Travel'],
+        timeSlot: 'Evening'
+      }
+    ];
+    if (steak) dinnerOptions.push({
+      value: 'fri_dinner_steak',
+      title: 'Steakhouse Dinner',
+      description: steak.itinerary_description || steak.description || 'Premium steakhouse dinner before the night out',
+      price_cad: steak.price_cad,
+      price_per_person: steak.price_cad ? Math.round(steak.price_cad / groupSize) : null,
+      duration: steak.duration_hours ? `${steak.duration_hours}h` : '2-3h',
+      features: ['Group Dining', 'Premium Steaks'],
+      timeSlot: 'Evening'
+    });
+
+    // Night options: comedy club, bar hopping, strip club
+    const comedy = svc.find(s => /comedy/i.test(`${s.name||''} ${s.description||''}`));
+    const bar = svc.find(s => (s.category === 'bar') || /bar/i.test(s.name || ''));
+    const strip = svc.find(s => (s.category === 'strip_club') || /gentlemen/i.test(s.name || ''));
+
+    const nightOptions = [];
+    if (comedy) nightOptions.push({
+      value: 'fri_night_comedy',
+      title: 'Comedy Club',
+      description: comedy.itinerary_description || comedy.description || 'Laugh it up at a great Austin comedy club',
+      price_cad: comedy.price_cad,
+      price_per_person: comedy.price_cad ? Math.round(comedy.price_cad / groupSize) : null,
+      duration: comedy.duration_hours ? `${comedy.duration_hours}h` : '2h',
+      features: ['Seated Show', 'Fun Night Out'],
+      timeSlot: 'Night'
+    });
+    if (bar) nightOptions.push({
+      value: 'fri_night_bars',
+      title: 'Bar Hopping',
+      description: bar.itinerary_description || bar.description || 'Hit a few top bars for a classic Austin night',
+      price_cad: bar.price_cad,
+      price_per_person: bar.price_cad ? Math.round(bar.price_cad / groupSize) : null,
+      duration: bar.duration_hours ? `${bar.duration_hours}h` : '3-4h',
+      features: ['Multiple Bars', 'Group Vibe'],
+      timeSlot: 'Night'
+    });
+    if (strip) nightOptions.push({
+      value: 'fri_night_strip',
+      title: 'Strip Club',
+      description: strip.itinerary_description || strip.description || "Premium gentlemen's club night",
+      price_cad: strip.price_cad,
+      price_per_person: strip.price_cad ? Math.round(strip.price_cad / groupSize) : null,
+      duration: strip.duration_hours ? `${strip.duration_hours}h` : '3-4h',
+      features: ['VIP', 'Bachelor Party'],
+      timeSlot: 'Night'
+    });
+
+    // Persist a small guided state for this day
+    conversation.dayByDayPlanning.guided ||= {};
+    conversation.dayByDayPlanning.guided[dayIndex] = { step: 'friday_morning', selections: {} };
+
+    return {
+      response: "Day set. For Friday morning, do you want Breakfast Taco Catering or a daytime shooting activity?",
+      interactive: { type: 'guided_cards', options: morningOptions, subOptions: { 'fri_morning_activity': shootingSubOptions }, dynamicReplace: true }
+    };
+  }
+
+  async promptGuidedSaturday(conversation, dayIndex) {
+    const groupSize = conversation.facts?.groupSize?.value || 8;
+    const svc = conversation.availableServices || [];
+
+    // Lake activity: Booze Cruise or other activity
+    const booze = svc.find(s => /booze\s*cruise/i.test((s.name || '') + ' ' + (s.itinerary_name || '')));
+    const altDay = svc.find(s => /daytime|activity|golf|boat/i.test(`${s.name||''} ${s.description||''}`));
+
+    const lakeOptions = [];
+    if (booze) lakeOptions.push({
+      value: 'sat_lake_booze',
+      title: 'Booze Cruise (Lake)',
+      description: booze.itinerary_description || booze.description || 'Private party boat on the lake',
+      price_cad: booze.price_cad,
+      price_per_person: booze.price_cad ? Math.round(booze.price_cad / groupSize) : null,
+      duration: booze.duration_hours ? `${booze.duration_hours}h` : '3-4h',
+      features: ['Private Boat', 'Drinks', 'Music'],
+      timeSlot: 'Afternoon'
+    });
+    lakeOptions.push({
+      value: 'sat_lake_other',
+      title: 'Other Daytime Activity',
+      description: 'Pick another daytime activity for Saturday',
+      price_cad: altDay?.price_cad || null,
+      price_per_person: altDay?.price_cad ? Math.round(altDay.price_cad / groupSize) : null,
+      duration: altDay?.duration_hours ? `${altDay.duration_hours}h` : '3-4h',
+      features: ['Flexible'],
+      timeSlot: 'Afternoon'
+    });
+
+    conversation.dayByDayPlanning.guided ||= {};
+    conversation.dayByDayPlanning.guided[dayIndex] = { step: 'saturday_lake', selections: {} };
+
+    return {
+      response: "Saturday daytime—do you want the Booze Cruise, or another activity?",
+      interactive: { type: 'guided_cards', options: lakeOptions }
+    };
+  }
+
+  async handleGuidedDayResponse(conversation, userMessage) {
+    const dp = conversation.dayByDayPlanning;
+    if (!dp?.guided) return null;
+    const idx = dp.currentDay ?? 0;
+    const g = dp.guided[idx];
+    if (!g) return null;
+
+    const svc = conversation.availableServices || [];
+    const groupSize = conversation.facts?.groupSize?.value || 8;
+
+    const setStep = (s) => { g.step = s; };
+
+    // Friday flow
+    if (g.step === 'friday_morning') {
+      if (
+        userMessage === 'fri_morning_catering' ||
+        userMessage === 'fri_morning_activity' ||
+        userMessage === 'fri_morning_activity_clay' ||
+        userMessage === 'fri_morning_activity_range' ||
+        userMessage === 'fri_morning_activity_hog'
+      ) {
+        g.selections.morning = userMessage;
+        setStep('friday_dinner');
+
+        // Update current day plan immediately
+        try {
+          const plan = await this.buildGuidedDayPlan(conversation, idx, 'friday');
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+
+        // Build dinner options
+        const steak = svc.find(s => /steak/i.test(s.name || ''));
+        const opts = [
+          {
+            value: 'fri_dinner_house',
+            title: 'Dinner at the House',
+            description: 'Keep it easy at the house with food and drinks',
+            price_cad: null,
+            price_per_person: null,
+            duration: 'Flexible',
+            features: ['Chill Vibes', 'Flexible Timing', 'No Travel'],
+            timeSlot: 'Evening'
+          }
+        ];
+        if (steak) opts.push({
+          value: 'fri_dinner_steak',
+          title: 'Steakhouse Dinner',
+          description: steak.itinerary_description || steak.description || 'Premium steakhouse dinner before the night out',
+          price_cad: steak.price_cad,
+          price_per_person: steak.price_cad ? Math.round(steak.price_cad / groupSize) : null,
+          duration: steak.duration_hours ? `${steak.duration_hours}h` : '2-3h',
+          features: ['Group Dining', 'Premium Steaks'],
+          timeSlot: 'Evening'
+        });
+
+        return {
+          response: 'Nice. For dinner, do you want to keep it at the house, or go for a steakhouse?',
+          interactive: { type: 'guided_cards', options: opts }
+        };
+      }
+    }
+
+    if (g.step === 'friday_dinner') {
+      if (userMessage === 'fri_dinner_house' || userMessage === 'fri_dinner_steak') {
+        g.selections.dinner = userMessage;
+        setStep('friday_night');
+
+        // Update current day plan immediately
+        try {
+          const plan = await this.buildGuidedDayPlan(conversation, idx, 'friday');
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+
+        const comedy = svc.find(s => /comedy/i.test(`${s.name||''} ${s.description||''}`));
+        const bar = svc.find(s => (s.category === 'bar') || /bar/i.test(s.name || ''));
+        const strip = svc.find(s => (s.category === 'strip_club') || /gentlemen/i.test(s.name || ''));
+
+        const opts = [];
+        if (comedy) opts.push({
+          value: 'fri_night_comedy', title: 'Comedy Club',
+          description: comedy.itinerary_description || comedy.description || 'Laugh it up at a great Austin comedy club',
+          price_cad: comedy.price_cad,
+          price_per_person: comedy.price_cad ? Math.round(comedy.price_cad / groupSize) : null,
+          duration: comedy.duration_hours ? `${comedy.duration_hours}h` : '2h',
+          features: ['Seated Show', 'Fun Night Out'], timeSlot: 'Night'
+        });
+        if (bar) opts.push({
+          value: 'fri_night_bars', title: 'Bar Hopping',
+          description: bar.itinerary_description || bar.description || 'Hit a few top bars for a classic Austin night',
+          price_cad: bar.price_cad,
+          price_per_person: bar.price_cad ? Math.round(bar.price_cad / groupSize) : null,
+          duration: bar.duration_hours ? `${bar.duration_hours}h` : '3-4h',
+          features: ['Multiple Bars', 'Group Vibe'], timeSlot: 'Night'
+        });
+        if (strip) opts.push({
+          value: 'fri_night_strip', title: 'Strip Club',
+          description: strip.itinerary_description || strip.description || "Premium gentlemen's club night",
+          price_cad: strip.price_cad,
+          price_per_person: strip.price_cad ? Math.round(strip.price_cad / groupSize) : null,
+          duration: strip.duration_hours ? `${strip.duration_hours}h` : '3-4h',
+          features: ['VIP', 'Bachelor Party'], timeSlot: 'Night'
+        });
+
+        return { response: 'For the night, pick your vibe.', interactive: { type: 'guided_cards', options: opts } };
+      }
+    }
+
+    if (g.step === 'friday_night') {
+      if (['fri_night_comedy','fri_night_bars','fri_night_strip'].includes(userMessage)) {
+        g.selections.night = userMessage;
+
+        // Update current day plan immediately
+        try {
+          const plan = await this.buildGuidedDayPlan(conversation, idx, 'friday');
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+
+        // Clear guided state for this day
+        delete conversation.dayByDayPlanning.guided[idx];
+        return { 
+          response: 'Locked for Friday. Ready for the next day?', 
+          interactive: {
+            type: 'buttons',
+            buttons: [
+              { text: 'Yes, next day', value: 'next_day_yes', style: 'primary' },
+              { text: 'No, make changes', value: 'next_day_no', style: 'secondary' }
+            ]
+          }
+        };
+      }
+    }
+
+    // Saturday flow
+    if (g.step === 'saturday_lake') {
+      if (userMessage === 'sat_lake_booze' || userMessage === 'sat_lake_other') {
+        g.selections.lake = userMessage;
+        setStep('saturday_catering');
+
+        // Update current day plan immediately
+        try {
+          const plan = await this.buildGuidedDayPlan(conversation, idx, 'saturday');
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+
+        const svc = conversation.availableServices || [];
+        const bbq = svc.find(s => /bbq/i.test(`${s.name||''} ${s.description||''}`));
+        const hibachi = svc.find(s => /hibachi/i.test(`${s.name||''} ${s.description||''}`));
+
+        const opts = [];
+        if (bbq) opts.push({
+          value: 'sat_cater_bbq', title: 'BBQ Catering',
+          description: bbq.itinerary_description || bbq.description || 'Post-lake BBQ at the house',
+          price_cad: bbq.price_cad,
+          price_per_person: bbq.price_cad ? Math.round(bbq.price_cad / groupSize) : null,
+          duration: bbq.duration_hours ? `${bbq.duration_hours}h` : '2-3h',
+          features: ['At the House', 'Texas BBQ'], timeSlot: 'Evening'
+        });
+        if (hibachi) opts.push({
+          value: 'sat_cater_hibachi', title: 'Hibachi Chef',
+          description: hibachi.itinerary_description || hibachi.description || 'Private hibachi chef experience at your place',
+          price_cad: hibachi.price_cad,
+          price_per_person: hibachi.price_cad ? Math.round(hibachi.price_cad / groupSize) : null,
+          duration: hibachi.duration_hours ? `${hibachi.duration_hours}h` : '2-3h',
+          features: ['At the House', 'Chef Experience'], timeSlot: 'Evening'
+        });
+
+        return { response: 'After the lake, do you want BBQ catering or a Hibachi chef?', interactive: { type: 'guided_cards', options: opts } };
+      }
+    }
+
+    if (g.step === 'saturday_catering') {
+      if (['sat_cater_bbq','sat_cater_hibachi'].includes(userMessage)) {
+        g.selections.catering = userMessage;
+
+        // Update current day plan immediately
+        try {
+          const plan = await this.buildGuidedDayPlan(conversation, idx, 'saturday');
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+
+        // Clear guided state for this day
+        delete conversation.dayByDayPlanning.guided[idx];
+        return { 
+          response: 'Saturday is set. Ready for the next day?', 
+          interactive: {
+            type: 'buttons',
+            buttons: [
+              { text: 'Yes, next day', value: 'next_day_yes', style: 'primary' },
+              { text: 'No, make changes', value: 'next_day_no', style: 'secondary' }
+            ]
+          }
+        };
+      }
+    }
+
+    return null;
+  }
+
+  async buildGuidedDayPlan(conversation, dayIndex, kind) {
+    const svc = conversation.availableServices || [];
+    const selections = conversation.dayByDayPlanning?.guided?.[dayIndex]?.selections || {};
+
+    const pickBy = (predicate) => svc.find(predicate);
+    const sel = [];
+
+    if (kind === 'friday') {
+      if (selections.morning === 'fri_morning_catering') {
+        const breakfast = pickBy(s => /breakfast\s*taco/i.test(s.name || ''));
+        if (breakfast) sel.push({
+          serviceId: String(breakfast.id), serviceName: breakfast.itinerary_name || breakfast.name,
+          timeSlot: 'morning', reason: 'Breakfast taco catering at the house',
+          price_cad: breakfast.price_cad, price_usd: breakfast.price_usd, duration_hours: breakfast.duration_hours
+        });
+      } else if (selections.morning === 'fri_morning_activity') {
+        const gunRange = pickBy(s => /(gun|range|shoot|clay|skeet)/i.test(`${s.name||''} ${s.description||''}`));
+        if (gunRange) sel.push({
+          serviceId: String(gunRange.id), serviceName: gunRange.itinerary_name || gunRange.name,
+          timeSlot: 'afternoon', reason: 'Daytime shooting activity',
+          price_cad: gunRange.price_cad, price_usd: gunRange.price_usd, duration_hours: gunRange.duration_hours
+        });
+      }
+
+      if (selections.dinner === 'fri_dinner_steak') {
+        const steak = pickBy(s => /steak|steakhouse/i.test(`${s.name || ''} ${s.itinerary_name || ''}`));
+        if (steak) {
+          sel.push({
+            serviceId: String(steak.id), serviceName: steak.itinerary_name || steak.name,
+            timeSlot: 'evening', reason: 'Steakhouse dinner',
+            price_cad: steak.price_cad, price_usd: steak.price_usd, duration_hours: steak.duration_hours
+          });
+        } else {
+          sel.push({
+            serviceId: 'placeholder_steakhouse', serviceName: 'Steakhouse Dinner',
+            timeSlot: 'evening', reason: 'Steakhouse dinner', price_cad: null, price_usd: null, duration_hours: null
+          });
+        }
+      } else if (selections.dinner === 'fri_dinner_house') {
+        sel.push({
+          serviceId: 'placeholder_house_dinner', serviceName: 'Dinner at the House',
+          timeSlot: 'evening', reason: 'Keep it easy at the house', price_cad: null, price_usd: null, duration_hours: null
+        });
+      }
+
+      if (selections.night === 'fri_night_comedy') {
+        const comedy = pickBy(s => /comedy/i.test(`${s.name||''} ${s.description||''}`));
+        if (comedy) sel.push({
+          serviceId: String(comedy.id), serviceName: comedy.itinerary_name || comedy.name,
+          timeSlot: 'night', reason: 'Comedy club',
+          price_cad: comedy.price_cad, price_usd: comedy.price_usd, duration_hours: comedy.duration_hours
+        });
+      } else if (selections.night === 'fri_night_bars') {
+        const bar = pickBy(s => (s.category === 'bar') || /bar/i.test(s.name || ''));
+        if (bar) sel.push({
+          serviceId: String(bar.id), serviceName: bar.itinerary_name || bar.name,
+          timeSlot: 'night', reason: 'Bar hopping',
+          price_cad: bar.price_cad, price_usd: bar.price_usd, duration_hours: bar.duration_hours
+        });
+      } else if (selections.night === 'fri_night_strip') {
+        const strip = pickBy(s => (s.category === 'strip_club') || /gentlemen/i.test(s.name || ''));
+        if (strip) sel.push({
+          serviceId: String(strip.id), serviceName: strip.itinerary_name || strip.name,
+          timeSlot: 'night', reason: "Gentlemen's club",
+          price_cad: strip.price_cad, price_usd: strip.price_usd, duration_hours: strip.duration_hours
+        });
+      }
+    }
+
+    if (kind === 'saturday') {
+      if (selections.lake === 'sat_lake_booze') {
+        const booze = pickBy(s => /booze\s*cruise/i.test(s.name || ''));
+        if (booze) sel.push({
+          serviceId: String(booze.id), serviceName: booze.itinerary_name || booze.name,
+          timeSlot: 'afternoon', reason: 'Booze Cruise on the lake',
+          price_cad: booze.price_cad, price_usd: booze.price_usd, duration_hours: booze.duration_hours
+        });
+      }
+      // sat_lake_other -> leave afternoon open
+
+      if (selections.catering === 'sat_cater_bbq') {
+        const bbq = pickBy(s => /bbq/i.test(`${s.name||''} ${s.description||''}`));
+        if (bbq) sel.push({
+          serviceId: String(bbq.id), serviceName: bbq.itinerary_name || bbq.name,
+          timeSlot: 'evening', reason: 'BBQ catering after the lake',
+          price_cad: bbq.price_cad, price_usd: bbq.price_usd, duration_hours: bbq.duration_hours
+        });
+      } else if (selections.catering === 'sat_cater_hibachi') {
+        const hibachi = pickBy(s => /hibachi/i.test(`${s.name||''} ${s.description||''}`));
+        if (hibachi) sel.push({
+          serviceId: String(hibachi.id), serviceName: hibachi.itinerary_name || hibachi.name,
+          timeSlot: 'evening', reason: 'Private hibachi chef at the house',
+          price_cad: hibachi.price_cad, price_usd: hibachi.price_usd, duration_hours: hibachi.duration_hours
+        });
+      }
+    }
+
+    return { selectedServices: sel, dayTheme: kind === 'friday' ? 'Friday Plan' : 'Saturday Plan', logisticsNotes: '' };
   }
 }

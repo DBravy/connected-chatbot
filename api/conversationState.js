@@ -1,6 +1,7 @@
 export const PHASES = {
   GATHERING: 'gathering',    // Collect basic requirements
   PLANNING: 'planning',      // Search services and build options day-by-day
+  GUIDED_FIRST_DAY: 'guided_first_day', // NEW: Guided first day planning with specific questions
   STANDBY: 'standby'        // All days planned, ready for modifications and questions
 };
 
@@ -29,6 +30,14 @@ export const createNewConversation = (userId = null) => ({
   
   // Flag to track when we're awaiting Austin confirmation
   awaitingAustinConfirmation: false,
+
+  // NEW: Guided first day planning state
+  guidedFirstDay: {
+    step: null, // 'airport_pickup' or 'evening_activity'
+    airportPickup: null, // Selected airport pickup option
+    eveningActivity: null, // Selected evening activity option
+    isComplete: false
+  },
 
   dayByDayPlanning: {
       currentDay: 0,          // Which day we're currently planning (0-indexed)

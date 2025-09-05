@@ -93,7 +93,38 @@ export class AIResponseGenerator {
   }
 
   // aiResponseGenerator.js
-  async generateItineraryResponse(dayPlan, dayInfo, userPreferences) {
+  async generateItineraryResponse(dayPlan, dayInfo, userPreferences, options = {})  {
+
+    if (options.short) {
+      const dayNumber = dayInfo?.dayNumber || 1;
+      const totalDays = userPreferences.duration || dayInfo.totalDays || 1;
+      const isLastDay = dayNumber >= totalDays;
+      
+      if (isLastDay) {
+        return {
+          response: `Day ${dayNumber} is set. Want to finalize the itinerary?`,
+          interactive: {
+            type: 'buttons',
+            buttons: [
+              { text: 'Yes, finalize', value: 'finalize_yes', style: 'primary' },
+              { text: 'No, make changes', value: 'finalize_no', style: 'secondary' }
+            ]
+          }
+        };
+      } else {
+        return {
+          response: `Day ${dayNumber} is set. Ready for Day ${dayNumber + 1}?`,
+          interactive: {
+            type: 'buttons',
+            buttons: [
+              { text: 'Yes, next day', value: 'next_day_yes', style: 'primary' },
+              { text: 'No, make changes', value: 'next_day_no', style: 'secondary' }
+            ]
+          }
+        };
+      }
+    }
+
     const DBG = process.env.CONNECTED_DEBUG_LOGS === '1';
     const STRIP = process.env.CONNECTED_STRIP_UNGROUNDED_PRICES === '1';
     const log = (...a) => { if (DBG) console.log('[ItinWriter]', ...a); };
@@ -225,7 +256,19 @@ export class AIResponseGenerator {
       }
 
       if (DBG) log('Final text (first 800):', text.slice(0, 800));
-      return text;
+
+      // Always return interactive Yes/No controls when asking to proceed
+      const buttons = isLastDay
+        ? [
+            { text: 'Yes, finalize', value: 'finalize_yes', style: 'primary' },
+            { text: 'No, make changes', value: 'finalize_no', style: 'secondary' }
+          ]
+        : [
+            { text: 'Yes, next day', value: 'next_day_yes', style: 'primary' },
+            { text: 'No, make changes', value: 'next_day_no', style: 'secondary' }
+          ];
+
+      return { response: text, interactive: { type: 'buttons', buttons } };
     } catch (error) {
       console.error('[ItinWriter] ERROR:', error);
       return this.generateFallbackResponse(selectedServices, dayInfo, userPreferences);
