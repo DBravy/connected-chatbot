@@ -759,10 +759,32 @@ body {
 
 .itinerary-content {
     flex: 1;
-    padding: 24px;
+    padding: 24px 24px 140px 24px; /* Added bottom padding to clear social proof */
     overflow-y: auto;
     opacity: 1;
     transition: opacity 0.3s ease;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+/* Webkit scrollbar styling for itinerary content */
+.itinerary-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.itinerary-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.itinerary-content::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+.itinerary-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.3);
 }
 
 /* Fade-in sequencing: content hidden while sidebar is collapsed or animating open */
@@ -1120,6 +1142,11 @@ body {
     .chat-messages {
         -webkit-overflow-scrolling: touch;
         touch-action: pan-y;
+    }
+    
+    /* Ensure sidebar content can scroll past social proof on mobile */
+    .itinerary-content {
+        padding: 16px 16px 100px 16px; /* Reduced padding but still clear social proof */
     }
 }
 
