@@ -92,6 +92,13 @@ export const createNewConversation = (userId = null) => ({
       provenance: null,
       priority: FACT_PRIORITY.HELPFUL
     },
+    housing: { 
+      value: null, 
+      status: FIELD_STATUS.UNKNOWN, 
+      confidence: 0, 
+      provenance: null,
+      priority: FACT_PRIORITY.HELPFUL
+    },
     relationship: { 
       value: null, 
       status: FIELD_STATUS.UNKNOWN, 
@@ -118,7 +125,7 @@ export const createNewConversation = (userId = null) => ({
       status: FIELD_STATUS.UNKNOWN, 
       confidence: 0, 
       provenance: null,
-      priority: FACT_PRIORITY.HELPFUL
+      priority: FACT_PRIORITY.OPTIONAL  // Changed from HELPFUL to OPTIONAL - no longer asked in conversation flow
     },
     budgetType: {
       // "per_person" | "total"
@@ -126,7 +133,7 @@ export const createNewConversation = (userId = null) => ({
       status: FIELD_STATUS.UNKNOWN,
       confidence: 0,
       provenance: null,
-      priority: FACT_PRIORITY.HELPFUL
+      priority: FACT_PRIORITY.OPTIONAL  // Changed from HELPFUL to OPTIONAL - no longer asked in conversation flow
       }
   },
   

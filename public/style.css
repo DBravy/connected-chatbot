@@ -1649,6 +1649,47 @@ body {
     }
 }
 
+/* Housing Selector Styles */
+.housing-selector-container {
+    margin-top: 16px;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: fadeInMessage 0.4s ease-out 0.2s forwards;
+}
+
+.housing-selector {
+    background: rgba(255, 255, 255, 0.98);
+    border: 1px solid rgba(229, 229, 229, 0.8);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+}
+
+.housing-selector h5 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.housing-selector-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+/* Responsive design for housing selector */
+@media (max-width: 768px) {
+    .housing-selector-actions {
+        justify-content: stretch;
+    }
+    
+    .housing-selector-actions .interactive-btn {
+        flex: 1;
+    }
+}
+
 /* Loved by section */
 .loved-by-container {
     position: fixed;

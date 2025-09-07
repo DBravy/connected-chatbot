@@ -254,6 +254,10 @@ class ChatInterface {
         if (sender === 'bot' && this.isBudgetQuestion(content)) {
             this.addBudgetSelector(messageDiv);
         }
+
+        if (sender === 'bot' && this.isHousingQuestion(content)) {
+            this.addHousingSelector(messageDiv);
+          }
         
         this.messagesContainer.appendChild(messageDiv);
         
@@ -326,6 +330,11 @@ class ChatInterface {
             this.addBudgetSelector(messageDiv);
         }
         
+        // Check if this is a housing-related question and add housing selector
+        if (sender === 'bot' && this.isHousingQuestion(content)) {
+            this.addHousingSelector(messageDiv);
+        }
+        
         this.messagesContainer.appendChild(messageDiv);
         
         // Scroll to bottom with a small delay to ensure the message is rendered
@@ -386,6 +395,23 @@ class ChatInterface {
         
         const lowerContent = content.toLowerCase();
         return budgetKeywords.some(keyword => lowerContent.includes(keyword));
+    }
+
+    // Check if a message is asking about housing
+    isHousingQuestion(content) {
+        const housingKeywords = [
+            'need housing',
+            'need accommodations',
+            'place to stay',
+            'somewhere to stay',
+            'will you need housing',
+            'accommodations for your stay',
+            'need a place to stay',
+            'housing sorted'
+        ];
+        
+        const lowerContent = content.toLowerCase();
+        return housingKeywords.some(keyword => lowerContent.includes(keyword));
     }
 
     // Add date selector UI to a message
@@ -483,6 +509,31 @@ class ChatInterface {
         this.currentBudgetSelector = budgetSelector;
     }
 
+    // Add housing selector UI to a message
+    addHousingSelector(messageDiv) {
+        // Inline buttons container that matches the location confirmation UI
+        const interactiveDiv = document.createElement('div');
+        interactiveDiv.className = 'message-interactive';
+      
+        const yesBtn = document.createElement('button');
+        yesBtn.className = 'interactive-btn primary';
+        yesBtn.textContent = 'Yes';
+        yesBtn.onclick = () => this.handleHousingSelection('yes', 'Yes');
+      
+        const noBtn = document.createElement('button');
+        noBtn.className = 'interactive-btn secondary';
+        noBtn.textContent = 'No';
+        noBtn.onclick = () => this.handleHousingSelection('no', 'No');
+      
+        interactiveDiv.appendChild(yesBtn);
+        interactiveDiv.appendChild(noBtn);
+      
+        // Append inline to the same message bubble (no separate box / no header)
+        messageDiv.appendChild(interactiveDiv);
+      
+        // Track this container so we can disable buttons after selection
+        this.currentHousingSelector = interactiveDiv;
+      }
     // Handle combined date and group size selection submission
     handleDateAndGroupSelection() {
         if (!this.currentDateSelector) return;
@@ -574,6 +625,21 @@ class ChatInterface {
         this.sendBudgetResponse(null, 'total'); // Send a response indicating unsure
     }
 
+    // Handle housing selection
+    handleHousingSelection(choice, selectedText = (choice === 'yes' ? 'Yes' : 'No')) {
+        if (!this.currentHousingSelector) return;
+      
+        // Disable + style buttons like other interactive messages
+        this.disableHousingSelector(this.currentHousingSelector, selectedText);
+      
+        // User bubble shows the short button text to match location confirmation
+        this.addMessage(selectedText, 'user');
+      
+        // Send a descriptive message to keep backend context explicit
+        const descriptive = choice === 'yes' ? 'Yes, we need housing' : "No, we're all set with housing";
+        this.sendHousingResponse(descriptive);
+      }
+
     // Send budget response to backend
     async sendBudgetResponse(amount, scope) {
         this.sendButton.disabled = true;
@@ -632,6 +698,60 @@ class ChatInterface {
             }
             
             console.log('Conversation data:', result);
+        } catch (error) {
+            console.error('Error:', error);
+            // Hide loading indicator on error
+            this.hideLoadingIndicator();
+            this.addMessage('Sorry, something went wrong. Please try again.', 'bot');
+        } finally {
+            this.sendButton.disabled = false;
+            this.messageInput.focus();
+        }
+    }
+
+    // Send housing response to backend
+    async sendHousingResponse(responseText) {
+        this.sendButton.disabled = true;
+
+        try {
+            // Show loading indicator
+            this.showLoadingIndicator();
+
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversationId: this.conversationId,
+                    message: responseText,
+                    snapshot: this.currentState
+                })
+            });
+
+            const result = await response.json();
+            this.currentState = result.snapshot || this.currentState;
+            
+            // Hide loading indicator before showing response
+            this.hideLoadingIndicator();
+            
+            // Check if response includes interactive elements
+            if (result.interactive) {
+                this.addInteractiveMessage(result.response, 'bot', result.interactive);
+            } else {
+                this.addMessage(result.response, 'bot');
+            }
+            
+            // Update itinerary if we have facts and are in planning phase
+            if (result.facts) {
+                this.tripFacts = result.facts;
+                this.updateTripSummary();
+            }
+            
+            // Update itinerary if we received itinerary data
+            if (result.itinerary) {
+                this.currentItinerary = result.itinerary;
+                this.updateItinerary();
+            }
+            
         } catch (error) {
             console.error('Error:', error);
             // Hide loading indicator on error
@@ -734,6 +854,21 @@ class ChatInterface {
             budgetSelector.classList.add('selector-used');
         }
     }
+
+    disableHousingSelector(selectorElement, selectedText) {
+        const buttons = selectorElement.querySelectorAll('.interactive-btn');
+        buttons.forEach(btn => {
+          btn.disabled = true;
+          if (btn.textContent.trim().toLowerCase() === selectedText.toLowerCase()) {
+            btn.classList.add('selected');
+            if (selectedText.toLowerCase() === 'no') {
+              btn.classList.add('no-button');
+            }
+          } else {
+            btn.classList.add('dimmed');
+          }
+        });
+      }
 
     // Send combined date and group size response to backend
     async sendDateAndGroupResponse(startDate, endDate, groupSize) {
@@ -1075,7 +1210,9 @@ class ChatInterface {
         const budget = this.formatBudgetWithScope(
             this.tripFacts.budget?.value,
             this.tripFacts.budgetType?.value
-            );        
+            );
+        const housing = this.tripFacts.housing?.value === 'yes' ? 'Housing needed' : 
+                       this.tripFacts.housing?.value === 'no' ? 'Housing sorted' : 'Not specified';
         // Format dates using proper local date parsing
         let dateRange = 'Dates not set';
         if (startDate && endDate) {
@@ -1104,7 +1241,7 @@ class ChatInterface {
                 <div class="trip-details">
                     <p><strong>📅 Dates:</strong> ${dateRange}</p>
                     <p><strong>👥 Group Size:</strong> ${groupSize} people</p>
-                    <p><strong>💰 Budget:</strong> ${budget}</p>
+                    <p><strong>🏠 Housing:</strong> ${housing}</p>
                 </div>
             </div>
         `;
@@ -1128,7 +1265,9 @@ class ChatInterface {
             const budget = this.formatBudgetWithScope(
                 this.tripFacts.budget?.value,
                 this.tripFacts.budgetType?.value
-                );                
+                );
+            const housing = this.tripFacts.housing?.value === 'yes' ? 'Housing needed' : 
+                           this.tripFacts.housing?.value === 'no' ? 'Housing sorted' : 'Not specified';
             let dateRange = 'Dates not set';
             if (startDate && endDate) {
                 const start = this.formatDateWithConditionalYear(startDate);
@@ -1153,6 +1292,7 @@ class ChatInterface {
                         <p><strong>📅 Dates:</strong> ${dateRange}</p>
                         <p><strong>👥 Group Size:</strong> ${groupSize} people</p>
                         <p><strong>💰 Budget:</strong> ${budget}</p>
+                        <p><strong>🏠 Housing:</strong> ${housing}</p>
                     </div>
                 </div>
             `;

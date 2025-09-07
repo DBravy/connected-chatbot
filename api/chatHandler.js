@@ -1621,7 +1621,9 @@ async generateItinerary(conversationData) {
       // Fallback: legacy stricter gate (kept for safety)
       const helpfulFactsAddressed = [
         facts.wildnessLevel.status !== FIELD_STATUS.UNKNOWN,
-        facts.budget.status !== FIELD_STATUS.UNKNOWN
+        facts.housing.status !== FIELD_STATUS.UNKNOWN
+        // REMOVED: budget check - budget is no longer required for progression
+        // facts.budget.status !== FIELD_STATUS.UNKNOWN
       ];
     
       return helpfulFactsAddressed.every(Boolean) ? PHASES.GUIDED_FIRST_DAY : conversation.phase;
