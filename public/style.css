@@ -863,7 +863,7 @@ body {
 .per-person-text {
     font-size: 13px;
     font-weight: 400;
-    opacity: 0.6;
+    opacity: 0.4;
     position: relative;
     bottom: 1px; 
 }
