@@ -842,6 +842,32 @@ body {
     margin-bottom: 6px;
 }
 
+/* Trip summary divider */
+.trip-summary-divider {
+    height: 1px;
+    background-color: #e2e8f0;
+    margin: 16px 0 12px 0;
+}
+
+/* Total price within trip summary */
+.total-price-amount {
+    font-size: 20px;
+    font-weight: 550;
+    color: #1e293b;
+    text-align: left;
+    margin-bottom: 0px;
+    
+
+}
+
+.per-person-text {
+    font-size: 13px;
+    font-weight: 400;
+    opacity: 0.6;
+    position: relative;
+    bottom: 1px; 
+}
+
 /* Day sections - matches OG accordion style */
 .day-section {
     margin-bottom: 16px;

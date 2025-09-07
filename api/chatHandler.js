@@ -4576,7 +4576,7 @@ async searchServicesForConversation(conversation) {
     const lakeOptions = [];
     if (booze) lakeOptions.push({
       value: 'sat_lake_booze',
-      title: 'Booze Cruise (Lake)',
+      title: 'Lake Travis Booze Cruise',
       description: booze.itinerary_description || booze.description || 'Private party boat on the lake',
       price_cad: booze.price_cad,
       price_per_person: booze.price_cad ? Math.round(booze.price_cad / groupSize) : null,
@@ -4599,7 +4599,7 @@ async searchServicesForConversation(conversation) {
     conversation.dayByDayPlanning.guided[dayIndex] = { step: 'saturday_lake', selections: {} };
 
     return {
-      response: "Saturday daytime—do you want the Booze Cruise, or another activity?",
+      response: "For Saturday, do you want start off with a Booze Cruise, or another activity?",
       interactive: { type: 'guided_cards', options: lakeOptions }
     };
   }

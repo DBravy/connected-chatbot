@@ -1213,6 +1213,7 @@ class ChatInterface {
             );
         const housing = this.tripFacts.housing?.value === 'yes' ? 'Housing needed' : 
                        this.tripFacts.housing?.value === 'no' ? 'Housing sorted' : 'Not specified';
+        
         // Format dates using proper local date parsing
         let dateRange = 'Dates not set';
         if (startDate && endDate) {
@@ -1235,6 +1236,16 @@ class ChatInterface {
             dateRange = `Ends ${end}`;
         }
         
+        // Calculate total price per person
+        const priceInfo = this.calculateTotalPricePerPerson();
+        const totalPriceHtml = `
+        <div class="trip-summary-divider"></div>
+        <div class="total-price-amount">
+          <span class="price-value">$${priceInfo.total.toLocaleString()}</span>
+          <span class="per-person-text">/person</span>
+        </div>
+      `;
+
         const summaryHtml = `
             <div class="trip-summary ${this.hasShownTripSummaryOnce ? 'no-animate' : ''}">
                 <h3>Your Trip to ${destination}</h3>
@@ -1243,6 +1254,7 @@ class ChatInterface {
                     <p><strong>👥 Group Size:</strong> ${groupSize} people</p>
                     <p><strong>🏠 Housing:</strong> ${housing}</p>
                 </div>
+                ${totalPriceHtml}
             </div>
         `;
         
@@ -1268,6 +1280,7 @@ class ChatInterface {
                 );
             const housing = this.tripFacts.housing?.value === 'yes' ? 'Housing needed' : 
                            this.tripFacts.housing?.value === 'no' ? 'Housing sorted' : 'Not specified';
+            
             let dateRange = 'Dates not set';
             if (startDate && endDate) {
                 const start = this.formatDateWithConditionalYear(startDate);
@@ -1285,15 +1298,22 @@ class ChatInterface {
                 dateRange = `${start} (duration TBD)`;
             }
             
+            // Calculate total price per person
+            const priceInfo = this.calculateTotalPricePerPerson();
+            const totalPriceHtml = `
+                <div class="trip-summary-divider"></div>
+                <div class="total-price-amount">$${priceInfo.total.toLocaleString()} <span class="per-person-text">/person</span></div>
+            `;
+
             itineraryHtml += `
                 <div class="trip-summary ${this.hasShownItineraryOnce ? 'no-animate' : ''}">
                     <h3>Your Trip to ${destination}</h3>
                     <div class="trip-details">
                         <p><strong>📅 Dates:</strong> ${dateRange}</p>
                         <p><strong>👥 Group Size:</strong> ${groupSize} people</p>
-                        <p><strong>💰 Budget:</strong> ${budget}</p>
                         <p><strong>🏠 Housing:</strong> ${housing}</p>
                     </div>
+                    ${totalPriceHtml}
                 </div>
             `;
         }
@@ -1491,6 +1511,61 @@ class ChatInterface {
             return Math.floor(Math.random() * 300) + 200; // $200-500
         }
         return Math.floor(Math.random() * 150) + 75; // Default $75-225
+    }
+
+    // Calculate total price per person from all services in the itinerary
+    calculateTotalPricePerPerson() {
+        if (!this.currentItinerary || !Array.isArray(this.currentItinerary)) {
+            return { total: 0, currency: 'USD', hasServices: false };
+        }
+
+        const groupSize = this.tripFacts?.groupSize?.value || 4;
+        let totalPriceSum = 0;
+        let primaryCurrency = 'USD';
+        let hasCadServices = false;
+        let hasUsdServices = false;
+        let serviceCount = 0;
+
+        // Iterate through all days and services
+        this.currentItinerary.forEach(day => {
+            const services = this.dedupeServices(day.selectedServices || []);
+            services.forEach(service => {
+                const hasCad = typeof service.price_cad === 'number' && !isNaN(service.price_cad);
+                const hasUsd = typeof service.price_usd === 'number' && !isNaN(service.price_usd);
+                
+                let serviceTotal = 0;
+                if (hasCad) {
+                    serviceTotal = service.price_cad;
+                    hasCadServices = true;
+                } else if (hasUsd) {
+                    serviceTotal = service.price_usd;
+                    hasUsdServices = true;
+                } else {
+                    // Use mock price if no real price available
+                    serviceTotal = this.generateMockPrice(service.serviceName) * groupSize;
+                    hasUsdServices = true;
+                }
+                
+                totalPriceSum += serviceTotal;
+                serviceCount++;
+            });
+        });
+
+        // Determine primary currency (prefer CAD if we have any CAD services)
+        if (hasCadServices) {
+            primaryCurrency = 'CAD';
+        } else if (hasUsdServices) {
+            primaryCurrency = 'USD';
+        }
+
+        const totalPerPerson = serviceCount > 0 ? Math.round(totalPriceSum / groupSize) : 0;
+        
+        return {
+            total: totalPerPerson,
+            currency: primaryCurrency,
+            hasServices: serviceCount > 0,
+            serviceCount: serviceCount
+        };
     }
 
     createGuidedOptionCard(option, messageDiv, guidedContainer) {
