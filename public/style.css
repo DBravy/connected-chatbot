@@ -302,6 +302,8 @@ body {
     cursor: pointer;
     transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     position: relative;
+    display: flex;
+    flex-direction: column;
 }
 
 .guided-option-card:hover {
@@ -316,9 +318,17 @@ body {
 }
 
 .guided-option-card.disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
     transform: none;
+    pointer-events: none;
+    filter: grayscale(0.3);
+}
+
+.guided-option-card.disabled:hover {
+    transform: none;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border-color: #e2e8f0;
 }
 
 .guided-option-image {
@@ -333,6 +343,7 @@ body {
     display: flex;
     flex-direction: column;
     padding: 12px;
+    flex: 1;
 }
 
 .guided-option-title {
@@ -350,7 +361,10 @@ body {
 }
 
 .guided-option-pricing {
-    margin-top: 16px;
+    margin-top: auto;
+    padding: 12px;
+    border-top: 1px solid #f1f5f9;
+    background: #fafafa;
 }
 
 .guided-option-price-row {

@@ -140,7 +140,8 @@ export class AIServiceSelector {
                     groupSuitability: { type: "string" },
                     price_cad: { type: ["number", "null"] },
                     price_usd: { type: ["number", "null"] },
-                    duration_hours: { type: ["number", "null"] }
+                    duration_hours: { type: ["number", "null"] },
+                    image_url: { type: ["string", "null"] }
                   },
                   required: ["serviceId", "serviceName", "timeSlot", "reason", "price_cad", "price_usd"]
                 }

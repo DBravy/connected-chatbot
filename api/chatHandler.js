@@ -422,11 +422,16 @@ export class ChatHandler {
     const saved = (conversation.selectedServices && conversation.selectedServices[dayIndex]) ||
                   (conversation.dayByDayPlanning?.completedDays && conversation.dayByDayPlanning.completedDays[dayIndex]) || null;
 
-    const selectedServices = (saved?.selectedServices || []).map(s => ({
+          const selectedServices = (saved?.selectedServices || []).map(s => ({
       serviceId: String(s.serviceId || s.id),
       serviceName: s.serviceName || s.name || s.itinerary_name || '',
       timeSlot: s.timeSlot || s.time_slot || 'evening',
-      reason: s.reason || 'Kept from earlier plan.'
+      reason: s.reason || 'Kept from earlier plan.',
+      image_url: s.image_url ?? null,
+      price_cad: s.price_cad ?? null,
+      price_usd: s.price_usd ?? null,
+      duration_hours: s.duration_hours ?? null,
+      estimatedDuration: s.estimatedDuration ?? null
     }));
 
     return {
@@ -1722,7 +1727,8 @@ async generateItinerary(conversationData) {
         ...s,
         price_cad: s.price_cad ?? meta.price_cad ?? null,
         price_usd: s.price_usd ?? meta.price_usd ?? null,
-        duration_hours: s.duration_hours ?? meta.duration_hours ?? null
+        duration_hours: s.duration_hours ?? meta.duration_hours ?? null,
+        image_url: s.image_url ?? meta.image_url ?? null
       };
     });
   }
@@ -1779,8 +1785,8 @@ async generateItinerary(conversationData) {
     }
 
     // Calculate per-person pricing
-    const partyBusPerPerson = partyBusPickup.price_cad ? Math.round(partyBusPickup.price_cad / groupSize) : null;
-    const sprinterPerPerson = sprinterTour.price_cad ? Math.round(sprinterTour.price_cad / groupSize) : null;
+    const partyBusPerPerson = partyBusPickup.price_usd ? Math.round(partyBusPickup.price_usd / groupSize) : null;
+    const sprinterPerPerson = sprinterTour.price_usd ? Math.round(sprinterTour.price_usd / groupSize) : null;
 
     return {
       response: "Perfect! Let's plan your arrival day. Do you want to go straight to the house from the airport, or get the party started immediately with a BBQ & Beer Tour?",
@@ -1792,6 +1798,7 @@ async generateItinerary(conversationData) {
             title: 'Party Bus to House',
             description: partyBusPickup.itinerary_description || partyBusPickup.description || 'Get picked up in style with a party bus and head straight to your accommodation',
             price_cad: partyBusPickup.price_cad,
+            price_usd: partyBusPickup.price_usd,
             price_per_person: partyBusPerPerson,
             duration: partyBusPickup.duration_hours ? `${partyBusPickup.duration_hours}h` : '1h',
             features: ['Airport Pickup', 'Party Bus', 'Direct to House', 'Group Transport'],
@@ -1802,7 +1809,7 @@ async generateItinerary(conversationData) {
             value: 'sprinter_bbq_tour',
             title: 'BBQ & Beer Tour',
             description: sprinterTour.itinerary_description || sprinterTour.description || 'Start the party immediately with a BBQ and beer tour around Austin',
-            price_cad: sprinterTour.price_cad,
+            price_usd: sprinterTour.price_usd,
             price_per_person: sprinterPerPerson,
             duration: sprinterTour.duration_hours ? `${sprinterTour.duration_hours}h` : '4h',
             features: ['Airport Pickup', 'BBQ Tour', 'Beer Tasting', 'Immediate Party Start'],
@@ -1833,10 +1840,9 @@ async generateItinerary(conversationData) {
     const options = [
       {
         value: 'bar_hopping',
-        title: 'Bar Hopping',
+        title: 'Dirty Six Bar Hop',
         description: barService?.itinerary_description || barService?.description || 'Hit the best bars in Austin for an epic night out',
-        price_cad: barService?.price_cad,
-        price_per_person: barService?.price_cad ? Math.round(barService.price_cad / groupSize) : null,
+        ...this.calculatePricing(barService, groupSize),
         duration: barService?.duration_hours ? `${barService.duration_hours}h` : '3-4h',
         features: ['Multiple Bars', 'Group Activities', 'Local Favorites', 'Night Out'],
         timeSlot: 'Night',
@@ -1846,8 +1852,7 @@ async generateItinerary(conversationData) {
         value: 'steakhouse',
         title: 'Steakhouse Dinner',
         description: steakhouseService?.itinerary_description || steakhouseService?.description || 'Premium steakhouse experience with the best cuts in Austin',
-        price_cad: steakhouseService?.price_cad,
-        price_per_person: steakhouseService?.price_cad ? Math.round(steakhouseService.price_cad / groupSize) : null,
+        ...this.calculatePricing(steakhouseService, groupSize),
         duration: steakhouseService?.duration_hours ? `${steakhouseService.duration_hours}h` : '2-3h',
         features: ['Premium Steaks', 'Group Dining', 'Fine Dining', 'Celebration Meal'],
         timeSlot: 'Evening',
@@ -1857,8 +1862,7 @@ async generateItinerary(conversationData) {
         value: 'strip_club',
         title: 'Strip Club',
         description: stripClubService?.itinerary_description || stripClubService?.description || 'Premium gentlemen\'s club experience for the bachelor party',
-        price_cad: stripClubService?.price_cad,
-        price_per_person: stripClubService?.price_cad ? Math.round(stripClubService.price_cad / groupSize) : null,
+        ...this.calculatePricing(stripClubService, groupSize),
         duration: stripClubService?.duration_hours ? `${stripClubService.duration_hours}h` : '3-4h',
         features: ['VIP Access', 'Bachelor Party', 'Entertainment', 'Late Night'],
         timeSlot: 'Night',
@@ -1868,7 +1872,7 @@ async generateItinerary(conversationData) {
         value: 'open_evening',
         title: 'Keep it Open',
         description: 'Leave your evening flexible and decide what you want to do based on how you\'re feeling',
-        price_cad: null,
+        price_usd: null,
         price_per_person: null,
         duration: 'Flexible',
         features: ['Flexible Plans', 'Spontaneous', 'Game Time Decision', 'No Commitment'],
@@ -1997,11 +2001,13 @@ async generateItinerary(conversationData) {
         s.name.toLowerCase().includes('airport')
       );
       if (partyBusService) {
+        const title = 'Party Bus to House';
+        const description = partyBusService.itinerary_description || partyBusService.description || 'Get picked up in style with a party bus and head straight to your accommodation';
         selectedServices.push({
           serviceId: String(partyBusService.id),
-          serviceName: partyBusService.itinerary_name || partyBusService.name,
+          serviceName: title,
           timeSlot: 'afternoon',
-          reason: 'Airport pickup in style',
+          reason: description,
           estimatedDuration: '1 hour',
           groupSuitability: 'Perfect for groups',
           price_cad: partyBusService.price_cad,
@@ -2016,11 +2022,13 @@ async generateItinerary(conversationData) {
         (s.name.toLowerCase().includes('bbq') || s.name.toLowerCase().includes('beer'))
       );
       if (sprinterService) {
+        const title = 'BBQ & Beer Tour';
+        const description = sprinterService.itinerary_description || sprinterService.description || 'Start the party immediately with a BBQ and beer tour around Austin';
         selectedServices.push({
           serviceId: String(sprinterService.id),
-          serviceName: sprinterService.itinerary_name || sprinterService.name,
+          serviceName: title,
           timeSlot: 'afternoon',
-          reason: 'Start the party with BBQ and beer',
+          reason: description,
           estimatedDuration: '3-4 hours',
           groupSuitability: 'Perfect for groups',
           price_cad: sprinterService.price_cad,
@@ -2036,12 +2044,14 @@ async generateItinerary(conversationData) {
       const barService = availableServices.find(s => 
         s.category === 'bar' || (s.name && s.name.toLowerCase().includes('bar'))
       );
+      const title = 'Dirty Six Bar Hop';
+      const description = barService?.itinerary_description || barService?.description || 'Hit the best bars in Austin for an epic night out';
       if (barService) {
         selectedServices.push({
           serviceId: String(barService.id),
-          serviceName: barService.itinerary_name || barService.name,
+          serviceName: title,
           timeSlot: 'night',
-          reason: 'Bar hopping night out',
+          reason: description,
           estimatedDuration: '3-4 hours',
           groupSuitability: 'Great for groups',
           price_cad: barService.price_cad,
@@ -2054,12 +2064,14 @@ async generateItinerary(conversationData) {
       const steakhouseService = availableServices.find(s => 
         s.name && s.name.toLowerCase().includes('steak')
       );
+      const title = 'Steakhouse Dinner';
+      const description = steakhouseService?.itinerary_description || steakhouseService?.description || 'Premium steakhouse experience with the best cuts in Austin';
       if (steakhouseService) {
         selectedServices.push({
           serviceId: String(steakhouseService.id),
-          serviceName: steakhouseService.itinerary_name || steakhouseService.name,
+          serviceName: title,
           timeSlot: 'evening',
-          reason: 'Premium steakhouse dinner',
+          reason: description,
           estimatedDuration: '2-3 hours',
           groupSuitability: 'Perfect for groups',
           price_cad: steakhouseService.price_cad,
@@ -2072,20 +2084,22 @@ async generateItinerary(conversationData) {
       const stripClubService = availableServices.find(s => 
         s.category === 'strip_club' || (s.name && s.name.toLowerCase().includes('gentlemen'))
       );
-      if (stripClubService) {
-        selectedServices.push({
-          serviceId: String(stripClubService.id),
-          serviceName: stripClubService.itinerary_name || stripClubService.name,
-          timeSlot: 'night',
-          reason: 'Premium gentlemen\'s club experience',
-          estimatedDuration: '3-4 hours',
-          groupSuitability: 'Adult entertainment',
-          price_cad: stripClubService.price_cad,
-          price_usd: stripClubService.price_usd,
-          duration_hours: stripClubService.duration_hours,
-          image_url: stripClubService.image_url
-        });
-      }
+      const title = 'Strip Club';
+      const description = stripClubService?.itinerary_description || stripClubService?.description || "Premium gentlemen's club experience for the bachelor party";
+              if (stripClubService) {
+          selectedServices.push({
+            serviceId: String(stripClubService.id),
+            serviceName: stripClubService.itinerary_name || stripClubService.name,
+            timeSlot: 'night',
+            reason: description,
+            estimatedDuration: '3-4 hours',
+            groupSuitability: 'Adult entertainment',
+            price_cad: stripClubService.price_cad,
+            price_usd: stripClubService.price_usd,
+            duration_hours: stripClubService.duration_hours,
+            image_url: stripClubService.image_url
+          });
+        }
     }
     // For 'open_evening', we don't add a specific service
     
@@ -2418,9 +2432,11 @@ async generateItinerary(conversationData) {
           const match = available.find((s) => String(s.id) === String(item.serviceId));
           return {
             ...item,
-            price_cad: match?.price_cad ?? null,
-            price_usd: match?.price_usd ?? null,
-            serviceName: item.serviceName || match?.itinerary_name || match?.name || 'Selected service'
+            serviceName: item.serviceName || match?.itinerary_name || match?.name || 'Selected service',
+            price_cad: match?.price_cad ?? item.price_cad ?? null,
+            price_usd: match?.price_usd ?? item.price_usd ?? null,
+            image_url: match?.image_url ?? item.image_url ?? null,
+            duration_hours: item.duration_hours ?? match?.duration_hours ?? null
           };
         });
 
@@ -2479,8 +2495,12 @@ async generateItinerary(conversationData) {
           { usedServices: usedServicesContext, allowRepeats: false, userExplicitRequest: null }
         );
 
-        dayByDayPlanning.currentDayPlan = dayPlan;
-        const result = await this.aiResponseGenerator.generateItineraryResponse(dayPlan, dayInfo, userPreferences);
+        const enrichedNextPlan = {
+          ...dayPlan,
+          selectedServices: this.enrichSelectedWithMeta(dayPlan.selectedServices, allServices)
+        };
+        dayByDayPlanning.currentDayPlan = enrichedNextPlan;
+        const result = await this.aiResponseGenerator.generateItineraryResponse(enrichedNextPlan, dayInfo, userPreferences);
         return typeof result === 'string' ? result : result;
       } catch (e) {
         console.error('[approval_next][select/generate error]', e?.stack || e);
@@ -2565,7 +2585,11 @@ async generateItinerary(conversationData) {
         }
       }
 
-      dayByDayPlanning.currentDayPlan = nextPlan;
+      const enrichedPlan = {
+        ...nextPlan,
+        selectedServices: this.enrichSelectedWithMeta(nextPlan.selectedServices, allServices)
+      };
+      dayByDayPlanning.currentDayPlan = enrichedPlan;
 
       const dayInfo = {
         dayNumber: targetIndex + 1,
@@ -2574,7 +2598,7 @@ async generateItinerary(conversationData) {
         isFirstDay: targetIndex === 0,
         isLastDay: targetIndex + 1 === totalDays
       };
-      const result = await this.aiResponseGenerator.generateItineraryResponse(nextPlan, dayInfo, userPreferences);
+      const result = await this.aiResponseGenerator.generateItineraryResponse(enrichedPlan, dayInfo, userPreferences);
       return typeof result === 'string' ? result : result;
     }
 
@@ -2657,8 +2681,10 @@ async generateItinerary(conversationData) {
               reason: item.reason,
               estimatedDuration: item.estimatedDuration || null,
               groupSuitability: item.groupSuitability || null,
-              price_cad: match?.price_cad ?? null,
-              price_usd: match?.price_usd ?? null
+              price_cad: match?.price_cad ?? item.price_cad ?? null,
+              price_usd: match?.price_usd ?? item.price_usd ?? null,
+              image_url: match?.image_url ?? item.image_url ?? null,
+              duration_hours: item.duration_hours ?? match?.duration_hours ?? null
             };
           });
     
@@ -3133,7 +3159,7 @@ async generateItinerary(conversationData) {
   ${itinerary.map((day, index) => {
     const services = day.selectedServices || [];
     const serviceList = services.map(s => 
-      `  - ${s.timeSlot}: ${s.serviceName}${s.price_cad ? ` ($${s.price_cad} CAD)` : ''}${s.estimatedDuration ? ` - ${s.estimatedDuration}` : ''}`
+      `  - ${s.timeSlot}: ${s.serviceName}${s.price_usd ? ` ($${s.price_usd} CAD)` : ''}${s.estimatedDuration ? ` - ${s.estimatedDuration}` : ''}`
     ).join('\n');
     return `Day ${day.dayNumber}:\n${serviceList || '  - No services selected'}`;
   }).join('\n\n')}` : '\nCURRENT ITINERARY: No itinerary planned yet';
@@ -3144,7 +3170,7 @@ async generateItinerary(conversationData) {
   AVAILABLE SERVICES BY CATEGORY:
   ${Object.entries(servicesByCategory).map(([category, services]) => {
     const serviceList = services.slice(0, 8).map(s => // Limit to first 8 per category to avoid overwhelming
-      `  - ${s.name}${s.price_cad ? ` ($${s.price_cad} CAD)` : ''}${s.duration_hours ? ` - ${s.duration_hours}h` : ''}${s.description ? ` - ${s.description.slice(0, 80)}...` : ''}`
+      `  - ${s.name}${s.price_usd ? ` ($${s.price_usd} CAD)` : ''}${s.duration_hours ? ` - ${s.duration_hours}h` : ''}${s.description ? ` - ${s.description.slice(0, 80)}...` : ''}`
     ).join('\n');
     return `${category.toUpperCase()} (${services.length} total):\n${serviceList}${services.length > 8 ? '\n  - ... and more options available' : ''}`;
   }).join('\n\n')}` : '\nAVAILABLE SERVICES: No services loaded';
@@ -3648,8 +3674,8 @@ selectBestServices(availableServices, wildnessLevel, groupSize) {
       });
       
       // Prefer higher prices (often indicates better experience)
-      scoreA += (a.price_cad || 0) * 0.01;
-      scoreB += (b.price_cad || 0) * 0.01;
+      scoreA += (a.price_usd || 0) * 0.01;
+      scoreB += (b.price_usd || 0) * 0.01;
       
       return scoreB - scoreA;
     })[0];
@@ -3899,6 +3925,16 @@ async searchServicesForConversation(conversation) {
       if (!Number.isNaN(n)) return n;
     }
     return null;
+  }
+
+  // Helper function to calculate prices, returning empty object if price is null/0
+  calculatePricing(service, groupSize) {
+    const price = service?.price_usd ?? service?.ser_default_price_usd;
+    if (!price || price === 0) return {};
+    return {
+      price_usd: price,
+      price_per_person: Math.round(price / groupSize)
+    };
   }
 
   async searchServices({ city_name, service_type, group_size, max_results = 10 }) {
@@ -4173,7 +4209,9 @@ async searchServicesForConversation(conversation) {
                 estimatedDuration: service.duration_hours || '2-3 hours',
                 groupSuitability: 'Perfect for your group',
                 price_cad: service.price_cad ?? service.ser_default_price_cad ?? null,
-                price_usd: service.price_usd ?? service.ser_default_price_usd ?? null
+                price_usd: service.price_usd ?? service.ser_default_price_usd ?? null,
+                image_url: service.image_url ?? null,
+                duration_hours: service.duration_hours ?? null
               });
             }
           });
@@ -4463,8 +4501,7 @@ async searchServicesForConversation(conversation) {
       value: 'fri_morning_catering',
       title: 'Breakfast Taco Catering',
       description: breakfast.itinerary_description || breakfast.description || 'Fuel up with Austin breakfast tacos at the house',
-      price_cad: breakfast.price_cad,
-      price_per_person: breakfast.price_cad ? Math.round(breakfast.price_cad / groupSize) : null,
+      ...this.calculatePricing(breakfast, groupSize),
       duration: breakfast.duration_hours ? `${breakfast.duration_hours}h` : '1-2h',
       features: ['At the House', 'Group-Friendly', 'Austin Tacos'],
       timeSlot: 'Morning',
@@ -4474,8 +4511,8 @@ async searchServicesForConversation(conversation) {
       value: 'fri_morning_activity',
       title: 'Daytime Shooting Activity',
       description: gunRange.itinerary_description || gunRange.description || 'Head out for gun range / clay shooting / hog hunting',
-      price_cad: gunRange.price_cad,
-      price_per_person: gunRange.price_cad ? Math.round(gunRange.price_cad / groupSize) : null,
+      price_usd: null,
+      price_per_person: null,
       duration: gunRange.duration_hours ? `${gunRange.duration_hours}h` : '3-4h',
       features: ['Outdoors', 'Adrenaline', 'Group Activity'],
       timeSlot: 'Afternoon',
@@ -4494,34 +4531,31 @@ async searchServicesForConversation(conversation) {
       value: 'fri_morning_activity_clay',
       title: 'Clay Shooting',
       description: clay.itinerary_description || clay.description || 'Clay/skeet shooting session',
-      price_cad: clay.price_cad,
-      price_per_person: clay.price_cad ? Math.round(clay.price_cad / groupSize) : null,
+      ...this.calculatePricing(clay, groupSize),
       duration: clay.duration_hours ? `${clay.duration_hours}h` : '2-3h',
       features: ['Outdoors', 'Team Challenge'],
       timeSlot: 'Afternoon',
       image_url: clay.image_url
     });
-    if (range) shootingSubOptions.push({
-      value: 'fri_morning_activity_range',
-      title: 'Gun Range',
-      description: range.itinerary_description || range.description || 'Indoor/outdoor gun range session',
-      price_cad: range.price_cad,
-      price_per_person: range.price_cad ? Math.round(range.price_cad / groupSize) : null,
-      duration: range.duration_hours ? `${range.duration_hours}h` : '2-3h',
-      features: ['Range', 'Instructor'],
-      timeSlot: 'Afternoon',
-      image_url: range.image_url
-    });
     if (hog) shootingSubOptions.push({
       value: 'fri_morning_activity_hog',
       title: 'Hog Hunting',
       description: hog.itinerary_description || hog.description || 'Guided hog hunting experience',
-      price_cad: hog.price_cad,
-      price_per_person: hog.price_cad ? Math.round(hog.price_cad / groupSize) : null,
+      ...this.calculatePricing(hog, groupSize),
       duration: hog.duration_hours ? `${hog.duration_hours}h` : '4-6h',
       features: ['Guided', 'Outdoors'],
       timeSlot: 'Afternoon',
       image_url: hog.image_url
+    });
+    if (range) shootingSubOptions.push({
+      value: 'fri_morning_activity_range',
+      title: 'Gun Range',
+      description: range.itinerary_description || range.description || 'Indoor/outdoor gun range session',
+      ...this.calculatePricing(range, groupSize),
+      duration: range.duration_hours ? `${range.duration_hours}h` : '2-3h',
+      features: ['Range', 'Instructor'],
+      timeSlot: 'Afternoon',
+      image_url: range.image_url
     });
 
     // Evening dinner: at house or steakhouse
@@ -4531,7 +4565,7 @@ async searchServicesForConversation(conversation) {
         value: 'fri_dinner_house',
         title: 'Dinner at the House',
         description: 'Keep it easy at the house with food and drinks',
-        price_cad: null,
+        price_usd: null,
         price_per_person: null,
         duration: 'Flexible',
         features: ['Chill Vibes', 'Flexible Timing', 'No Travel'],
@@ -4541,10 +4575,9 @@ async searchServicesForConversation(conversation) {
     ];
     if (steak) dinnerOptions.push({
       value: 'fri_dinner_steak',
-      title: 'Steakhouse Dinner',
+      title: 'Private Room at the Steakhouse',
       description: steak.itinerary_description || steak.description || 'Premium steakhouse dinner before the night out',
-      price_cad: steak.price_cad,
-      price_per_person: steak.price_cad ? Math.round(steak.price_cad / groupSize) : null,
+      ...this.calculatePricing(steak, groupSize),
       duration: steak.duration_hours ? `${steak.duration_hours}h` : '2-3h',
       features: ['Group Dining', 'Premium Steaks'],
       timeSlot: 'Evening',
@@ -4553,7 +4586,7 @@ async searchServicesForConversation(conversation) {
 
     // Night options: comedy club, bar hopping, strip club
     const comedy = svc.find(s => /comedy/i.test(`${s.name||''} ${s.description||''}`));
-    const bar = svc.find(s => (s.category === 'bar') || /bar/i.test(s.name || ''));
+    const bar = svc.find(s => /dirty.*six|bar.*hop/i.test(`${s.name||''} ${s.itinerary_name||''}`));
     const strip = svc.find(s => (s.category === 'strip_club') || /gentlemen/i.test(s.name || ''));
 
     const nightOptions = [];
@@ -4561,8 +4594,7 @@ async searchServicesForConversation(conversation) {
       value: 'fri_night_comedy',
       title: 'Comedy Club',
       description: comedy.itinerary_description || comedy.description || 'Laugh it up at a great Austin comedy club',
-      price_cad: comedy.price_cad,
-      price_per_person: comedy.price_cad ? Math.round(comedy.price_cad / groupSize) : null,
+      ...this.calculatePricing(comedy, groupSize),
       duration: comedy.duration_hours ? `${comedy.duration_hours}h` : '2h',
       features: ['Seated Show', 'Fun Night Out'],
       timeSlot: 'Night',
@@ -4570,10 +4602,9 @@ async searchServicesForConversation(conversation) {
     });
     if (bar) nightOptions.push({
       value: 'fri_night_bars',
-      title: 'Bar Hopping',
+      title: 'Dirty Six Bar Hop',
       description: bar.itinerary_description || bar.description || 'Hit a few top bars for a classic Austin night',
-      price_cad: bar.price_cad,
-      price_per_person: bar.price_cad ? Math.round(bar.price_cad / groupSize) : null,
+      ...this.calculatePricing(bar, groupSize),
       duration: bar.duration_hours ? `${bar.duration_hours}h` : '3-4h',
       features: ['Multiple Bars', 'Group Vibe'],
       timeSlot: 'Night',
@@ -4582,9 +4613,8 @@ async searchServicesForConversation(conversation) {
     if (strip) nightOptions.push({
       value: 'fri_night_strip',
       title: 'Strip Club',
-      description: strip.itinerary_description || strip.description || "Premium gentlemen's club night",
-      price_cad: strip.price_cad,
-      price_per_person: strip.price_cad ? Math.round(strip.price_cad / groupSize) : null,
+      description: strip.itinerary_description || strip.description || "Premium gentlemen's club experience for the bachelor party",
+      ...this.calculatePricing(strip, groupSize),
       duration: strip.duration_hours ? `${strip.duration_hours}h` : '3-4h',
       features: ['VIP', 'Bachelor Party'],
       timeSlot: 'Night',
@@ -4612,10 +4642,9 @@ async searchServicesForConversation(conversation) {
     const lakeOptions = [];
     if (booze) lakeOptions.push({
       value: 'sat_lake_booze',
-      title: 'Lake Travis Booze Cruise',
+      title: 'mnvis Booze Cruise',
       description: booze.itinerary_description || booze.description || 'Private party boat on the lake',
-      price_cad: booze.price_cad,
-      price_per_person: booze.price_cad ? Math.round(booze.price_cad / groupSize) : null,
+      ...this.calculatePricing(booze, groupSize),
       duration: booze.duration_hours ? `${booze.duration_hours}h` : '3-4h',
       features: ['Private Boat', 'Drinks', 'Music'],
       timeSlot: 'Afternoon',
@@ -4625,8 +4654,7 @@ async searchServicesForConversation(conversation) {
       value: 'sat_lake_other',
       title: 'Other Daytime Activity',
       description: 'Pick another daytime activity for Saturday',
-      price_cad: altDay?.price_cad || null,
-      price_per_person: altDay?.price_cad ? Math.round(altDay.price_cad / groupSize) : null,
+      ...this.calculatePricing(altDay, groupSize),
       duration: altDay?.duration_hours ? `${altDay.duration_hours}h` : '3-4h',
       features: ['Flexible'],
       timeSlot: 'Afternoon',
@@ -4689,42 +4717,80 @@ async searchServicesForConversation(conversation) {
           conversation.dayByDayPlanning.currentDayPlan = plan;
         } catch (_) {}
 
-        // Build dinner options
-        const steak = svc.find(s => /steak/i.test(s.name || ''));
+        // Build dinner options (four choices)
+        const steakPrivateRoom = svc.find(s =>
+          /(steak|steakhouse)/i.test(`${s.name||''} ${s.itinerary_name||''}`) &&
+          /private\s*room/i.test(`${s.name||''} ${s.itinerary_name||''} ${s.description||''} ${s.itinerary_description||''}`)
+        );
+        const privateChef = svc.find(s =>
+          /private\s*chef/i.test(`${s.name||''} ${s.description||''} ${s.itinerary_name||''} ${s.itinerary_description||''}`)
+        );
+        const dinnerReservation = svc.find(s =>
+          /reservation/i.test(`${s.name||''} ${s.description||''} ${s.itinerary_name||''} ${s.itinerary_description||''}`)
+        ) || svc.find(s => /(restaurant)/i.test(`${s.category||''} ${s.type||''}`) || /restaurant/i.test(s.name || ''));
+        const hibachi = svc.find(s =>
+          /hibachi/i.test(`${s.name||''} ${s.description||''}`)
+        );
+
         const opts = [
           {
-            value: 'fri_dinner_house',
-            title: 'Dinner at the House',
-            description: 'Keep it easy at the house with food and drinks',
-            price_cad: null,
-            price_per_person: null,
-            duration: 'Flexible',
-            features: ['Chill Vibes', 'Flexible Timing', 'No Travel'],
+            value: 'fri_dinner_steak_private_room',
+            title: 'Private Room at the Steakhouse',
+            description: steakPrivateRoom?.itinerary_description || steakPrivateRoom?.description || 'Private dining room at a top steakhouse',
+            ...this.calculatePricing(steakPrivateRoom, groupSize),
+            duration: steakPrivateRoom?.duration_hours ? `${steakPrivateRoom.duration_hours}h` : '2-3h',
+            features: ['Private Room', 'Premium Steaks', 'Group Dining'],
             timeSlot: 'Evening',
-            image_url: steak?.image_url
+            image_url: steakPrivateRoom?.image_url || null
+          },
+          {
+            value: 'fri_dinner_private_chef',
+            title: 'Private Chef',
+            description: privateChef?.itinerary_description || privateChef?.description || 'Private chef dinner at your place',
+            ...this.calculatePricing(privateChef, groupSize),
+            duration: privateChef?.duration_hours ? `${privateChef.duration_hours}h` : '2-3h',
+            features: ['At the House', 'Chef Experience'],
+            timeSlot: 'Evening',
+            image_url: privateChef?.image_url || null
+          },
+          {
+            value: 'fri_dinner_reservation',
+            title: 'Dinner Reservation',
+            description: dinnerReservation?.itinerary_description || dinnerReservation?.description || 'Reserved dinner at a great Austin spot',
+            ...this.calculatePricing(dinnerReservation, groupSize),
+            duration: dinnerReservation?.duration_hours ? `${dinnerReservation.duration_hours}h` : '2-3h',
+            features: ['Restaurant', 'Group Friendly'],
+            timeSlot: 'Evening',
+            image_url: dinnerReservation?.image_url || null
+          },
+          {
+            value: 'fri_dinner_hibachi',
+            title: 'Hibachi Chef',
+            description: hibachi?.itinerary_description || hibachi?.description || 'Private hibachi chef experience at your place',
+            ...this.calculatePricing(hibachi, groupSize),
+            duration: hibachi?.duration_hours ? `${hibachi.duration_hours}h` : '2-3h',
+            features: ['At the House', 'Chef Experience'],
+            timeSlot: 'Evening',
+            image_url: hibachi?.image_url || null
           }
         ];
-        if (steak) opts.push({
-          value: 'fri_dinner_steak',
-          title: 'Steakhouse Dinner',
-          description: steak.itinerary_description || steak.description || 'Premium steakhouse dinner before the night out',
-          price_cad: steak.price_cad,
-          price_per_person: steak.price_cad ? Math.round(steak.price_cad / groupSize) : null,
-          duration: steak.duration_hours ? `${steak.duration_hours}h` : '2-3h',
-          features: ['Group Dining', 'Premium Steaks'],
-          timeSlot: 'Evening',
-          image_url: steak.image_url
-        });
 
         return {
-          response: 'Nice. For dinner, do you want to keep it at the house, or go for a steakhouse?',
+          response: 'Nice. For dinner, pick your setup:',
           interactive: { type: 'guided_cards', options: opts }
         };
       }
     }
 
     if (g.step === 'friday_dinner') {
-      if (userMessage === 'fri_dinner_house' || userMessage === 'fri_dinner_steak') {
+      if ([
+        'fri_dinner_steak_private_room',
+        'fri_dinner_private_chef',
+        'fri_dinner_reservation',
+        'fri_dinner_hibachi',
+        'fri_dinner_house', // legacy
+        'fri_dinner_steak'  // legacy
+      ].includes(userMessage)) {
         g.selections.dinner = userMessage;
         setStep('friday_night');
 
@@ -4742,17 +4808,15 @@ async searchServicesForConversation(conversation) {
         if (comedy) opts.push({
           value: 'fri_night_comedy', title: 'Comedy Club',
           description: comedy.itinerary_description || comedy.description || 'Laugh it up at a great Austin comedy club',
-          price_cad: comedy.price_cad,
-          price_per_person: comedy.price_cad ? Math.round(comedy.price_cad / groupSize) : null,
+          ...this.calculatePricing(comedy, groupSize),
           duration: comedy.duration_hours ? `${comedy.duration_hours}h` : '2h',
           features: ['Seated Show', 'Fun Night Out'], timeSlot: 'Night',
           image_url: comedy.image_url
         });
         if (bar) opts.push({
-          value: 'fri_night_bars', title: 'Bar Hopping',
+          value: 'fri_night_bars', title: 'Dirty Six Bar Hop',
           description: bar.itinerary_description || bar.description || 'Hit a few top bars for a classic Austin night',
-          price_cad: bar.price_cad,
-          price_per_person: bar.price_cad ? Math.round(bar.price_cad / groupSize) : null,
+          ...this.calculatePricing(bar, groupSize),
           duration: bar.duration_hours ? `${bar.duration_hours}h` : '3-4h',
           features: ['Multiple Bars', 'Group Vibe'], timeSlot: 'Night',
           image_url: bar.image_url
@@ -4760,8 +4824,7 @@ async searchServicesForConversation(conversation) {
         if (strip) opts.push({
           value: 'fri_night_strip', title: 'Strip Club',
           description: strip.itinerary_description || strip.description || "Premium gentlemen's club night",
-          price_cad: strip.price_cad,
-          price_per_person: strip.price_cad ? Math.round(strip.price_cad / groupSize) : null,
+          ...this.calculatePricing(strip, groupSize),
           duration: strip.duration_hours ? `${strip.duration_hours}h` : '3-4h',
           features: ['VIP', 'Bachelor Party'], timeSlot: 'Night',
           image_url: strip.image_url
@@ -4798,7 +4861,7 @@ async searchServicesForConversation(conversation) {
 
     // Saturday flow
     if (g.step === 'saturday_lake') {
-      if (userMessage === 'sat_lake_booze' || userMessage === 'sat_lake_other') {
+      if (userMessage === 'sat_lake_booze') {
         g.selections.lake = userMessage;
         setStep('saturday_catering');
 
@@ -4816,8 +4879,7 @@ async searchServicesForConversation(conversation) {
         if (bbq) opts.push({
           value: 'sat_cater_bbq', title: 'BBQ Catering',
           description: bbq.itinerary_description || bbq.description || 'Post-lake BBQ at the house',
-          price_cad: bbq.price_cad,
-          price_per_person: bbq.price_cad ? Math.round(bbq.price_cad / groupSize) : null,
+          ...this.calculatePricing(bbq, groupSize),
           duration: bbq.duration_hours ? `${bbq.duration_hours}h` : '2-3h',
           features: ['At the House', 'Texas BBQ'], timeSlot: 'Evening',
           image_url: bbq.image_url
@@ -4825,14 +4887,153 @@ async searchServicesForConversation(conversation) {
         if (hibachi) opts.push({
           value: 'sat_cater_hibachi', title: 'Hibachi Chef',
           description: hibachi.itinerary_description || hibachi.description || 'Private hibachi chef experience at your place',
-          price_cad: hibachi.price_cad,
-          price_per_person: hibachi.price_cad ? Math.round(hibachi.price_cad / groupSize) : null,
+          ...this.calculatePricing(hibachi, groupSize),
           duration: hibachi.duration_hours ? `${hibachi.duration_hours}h` : '2-3h',
           features: ['At the House', 'Chef Experience'], timeSlot: 'Evening',
           image_url: hibachi.image_url
         });
 
-        return { response: 'After the lake, do you want BBQ catering or a Hibachi chef?', interactive: { type: 'guided_cards', options: opts } };
+        return { response: 'After the booze cruise, do you want BBQ catering or a Hibachi chef?', interactive: { type: 'guided_cards', options: opts } };
+      } else if (userMessage === 'sat_lake_other') {
+        g.selections.lake = userMessage;
+        setStep('saturday_activity');
+
+        // Present alternative activity options
+        const svc = conversation.availableServices || [];
+        const topgolf = svc.find(s => /topgolf/i.test(s.name || ''));
+        const pickleball = svc.find(s => /pickleball/i.test(s.name || ''));
+        const pitchputt = svc.find(s => /pitch.*putt|butler/i.test(s.name || ''));
+        const karting = svc.find(s => /kart|go.*kart/i.test(s.name || ''));
+
+        const opts = [];
+        if (topgolf) opts.push({
+          value: 'sat_activity_topgolf',
+          title: 'Topgolf Reservation',
+          description: topgolf.itinerary_description || topgolf.description || 'Private bay at Topgolf for the group',
+          ...this.calculatePricing(topgolf, groupSize),
+          duration: topgolf.duration_hours ? `${topgolf.duration_hours}h` : '2-3h',
+          features: ['Private Bay', 'Food & Drinks'],
+          timeSlot: 'Afternoon',
+          image_url: topgolf.image_url
+        });
+        if (pickleball) opts.push({
+          value: 'sat_activity_pickleball',
+          title: 'Pickleball Court Rental',
+          description: pickleball.itinerary_description || pickleball.description || 'Private pickleball courts for the group',
+          ...this.calculatePricing(pickleball, groupSize),
+          duration: pickleball.duration_hours ? `${pickleball.duration_hours}h` : '2-3h',
+          features: ['Private Courts', 'Equipment Included'],
+          timeSlot: 'Afternoon',
+          image_url: pickleball.image_url
+        });
+        if (pitchputt) opts.push({
+          value: 'sat_activity_pitchputt',
+          title: 'Butler Pitch & Putt',
+          description: pitchputt.itinerary_description || pitchputt.description || 'Mini golf and pitch & putt course',
+          ...this.calculatePricing(pitchputt, groupSize),
+          duration: pitchputt.duration_hours ? `${pitchputt.duration_hours}h` : '2-3h',
+          features: ['Mini Golf', 'Group Friendly'],
+          timeSlot: 'Afternoon',
+          image_url: pitchputt.image_url
+        });
+        if (karting) opts.push({
+          value: 'sat_activity_karting',
+          title: 'Go-Karting',
+          description: karting.itinerary_description || karting.description || 'High-speed go-kart racing for the group',
+          ...this.calculatePricing(karting, groupSize),
+          duration: karting.duration_hours ? `${karting.duration_hours}h` : '2-3h',
+          features: ['Racing', 'Competitive Fun'],
+          timeSlot: 'Afternoon',
+          image_url: karting.image_url
+        });
+
+        // Add fallback options if services aren't found
+        if (opts.length === 0) {
+          opts.push(
+            {
+              value: 'sat_activity_topgolf',
+              title: 'Topgolf Reservation',
+              description: 'Private bay at Topgolf for the group',
+              price_usd: null,
+              price_per_person: null,
+              duration: '2-3h',
+              features: ['Private Bay', 'Food & Drinks'],
+              timeSlot: 'Afternoon'
+            },
+            {
+              value: 'sat_activity_pickleball',
+              title: 'Pickleball Court Rental',
+              description: 'Private pickleball courts for the group',
+              price_usd: null,
+              price_per_person: null,
+              duration: '2-3h',
+              features: ['Private Courts', 'Equipment Included'],
+              timeSlot: 'Afternoon'
+            },
+            {
+              value: 'sat_activity_pitchputt',
+              title: 'Butler Pitch & Putt',
+              description: 'Mini golf and pitch & putt course',
+              price_usd: null,
+              price_per_person: null,
+              duration: '2-3h',
+              features: ['Mini Golf', 'Group Friendly'],
+              timeSlot: 'Afternoon'
+            },
+            {
+              value: 'sat_activity_karting',
+              title: 'Go-Karting',
+              description: 'High-speed go-kart racing for the group',
+              price_usd: null,
+              price_per_person: null,
+              duration: '2-3h',
+              features: ['Racing', 'Competitive Fun'],
+              timeSlot: 'Afternoon'
+            }
+          );
+        }
+
+        return { 
+          response: 'What daytime activity would you prefer for Saturday?', 
+          interactive: { type: 'guided_cards', options: opts } 
+        };
+      }
+    }
+
+    if (g.step === 'saturday_activity') {
+      if (['sat_activity_topgolf', 'sat_activity_pickleball', 'sat_activity_pitchputt', 'sat_activity_karting'].includes(userMessage)) {
+        g.selections.activity = userMessage;
+        setStep('saturday_catering');
+
+        // Update current day plan immediately
+        try {
+          const plan = await this.buildGuidedDayPlan(conversation, idx, 'saturday');
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+
+        const svc = conversation.availableServices || [];
+        const bbq = svc.find(s => /bbq/i.test(`${s.name||''} ${s.description||''}`));
+        const hibachi = svc.find(s => /hibachi/i.test(`${s.name||''} ${s.description||''}`));
+
+        const opts = [];
+        if (bbq) opts.push({
+          value: 'sat_cater_bbq', title: 'BBQ Catering',
+          description: bbq.itinerary_description || bbq.description || 'BBQ catering at the house',
+          ...this.calculatePricing(bbq, groupSize),
+          duration: bbq.duration_hours ? `${bbq.duration_hours}h` : '2-3h',
+          features: ['At the House', 'Texas BBQ'], timeSlot: 'Evening',
+          image_url: bbq.image_url
+        });
+        if (hibachi) opts.push({
+          value: 'sat_cater_hibachi', title: 'Hibachi Chef',
+          description: hibachi.itinerary_description || hibachi.description || 'Private hibachi chef experience at your place',
+          ...this.calculatePricing(hibachi, groupSize),
+          duration: hibachi.duration_hours ? `${hibachi.duration_hours}h` : '2-3h',
+          features: ['At the House', 'Chef Experience'], timeSlot: 'Evening',
+          image_url: hibachi.image_url
+        });
+
+        return { response: 'Great choice! For dinner, do you want BBQ catering or a Hibachi chef?', interactive: { type: 'guided_cards', options: opts } };
       }
     }
 
@@ -4947,8 +5148,7 @@ async searchServicesForConversation(conversation) {
           value: 'sunday_recovery_massage',
           title: 'On-Site Chair Massages',
           description: massage.itinerary_description || massage.description || 'Professional massage therapists come to your location for relaxing chair massages',
-          price_cad: massage.price_cad,
-          price_per_person: massage.price_cad ? Math.round(massage.price_cad / groupSize) : null,
+          ...this.calculatePricing(massage, groupSize),
           duration: massage.duration_hours ? `${massage.duration_hours}h` : '2-3h',
           features: ['On-Site Service', 'Professional Therapists', 'Recovery Focus', 'Group Friendly'],
           timeSlot: 'Afternoon',
@@ -4959,8 +5159,7 @@ async searchServicesForConversation(conversation) {
           value: 'sunday_recovery_sauna',
           title: 'Sauna & Cold Plunge Rental',
           description: sauna.itinerary_description || sauna.description || 'Mobile sauna and cold plunge setup delivered to your location for the ultimate recovery experience',
-          price_cad: sauna.price_cad,
-          price_per_person: sauna.price_cad ? Math.round(sauna.price_cad / groupSize) : null,
+          ...this.calculatePricing(sauna, groupSize),
           duration: sauna.duration_hours ? `${sauna.duration_hours}h` : '3-4h',
           features: ['Mobile Setup', 'Sauna & Cold Plunge', 'Recovery Experience', 'At Your Location'],
           timeSlot: 'Afternoon',
@@ -4972,7 +5171,7 @@ async searchServicesForConversation(conversation) {
           value: 'sunday_recovery_massage',
           title: 'On-Site Chair Massages',
           description: 'Professional massage therapists come to your location for relaxing chair massages',
-          price_cad: null,
+          price_usd: null,
           price_per_person: null,
           duration: '2-3h',
           features: ['On-Site Service', 'Professional Therapists', 'Recovery Focus'],
@@ -4984,7 +5183,7 @@ async searchServicesForConversation(conversation) {
           value: 'sunday_recovery_sauna',
           title: 'Sauna & Cold Plunge Rental',
           description: 'Mobile sauna and cold plunge setup delivered to your location for the ultimate recovery experience',
-          price_cad: null,
+          price_usd: null,
           price_per_person: null,
           duration: '3-4h',
           features: ['Mobile Setup', 'Sauna & Cold Plunge', 'Recovery Experience'],
@@ -5053,69 +5252,203 @@ async searchServicesForConversation(conversation) {
   async buildGuidedDayPlan(conversation, dayIndex, kind) {
     const svc = conversation.availableServices || [];
     const selections = conversation.dayByDayPlanning?.guided?.[dayIndex]?.selections || {};
+    const groupSize = conversation.facts?.groupSize?.value || 8;
 
     const pickBy = (predicate) => svc.find(predicate);
     const sel = [];
+
+    // Use class method for price calculations
+    const calculatePricing = (service) => this.calculatePricing(service, groupSize);
 
     if (kind === 'friday') {
       if (selections.morning === 'fri_morning_catering') {
         const breakfast = pickBy(s => /breakfast\s*taco/i.test(s.name || ''));
         if (breakfast) sel.push({
-          serviceId: String(breakfast.id), serviceName: breakfast.itinerary_name || breakfast.name,
-          timeSlot: 'morning', reason: 'Breakfast taco catering at the house',
-          price_cad: breakfast.price_cad, price_usd: breakfast.price_usd, duration_hours: breakfast.duration_hours
+          serviceId: String(breakfast.id), serviceName: 'Breakfast Taco Catering',
+          timeSlot: 'morning', reason: (breakfast.itinerary_description || breakfast.description || 'Fuel up with Austin breakfast tacos at the house'),
+          ...calculatePricing(breakfast),
+          duration: breakfast.duration_hours ? `${breakfast.duration_hours}h` : '1-2h',
+          features: ['At the House', 'Group-Friendly', 'Austin Tacos'],
+          timeSlot: 'Morning',
+          image_url: breakfast.image_url
         });
       } else if (selections.morning === 'fri_morning_activity') {
         const gunRange = pickBy(s => /(gun|range|shoot|clay|skeet)/i.test(`${s.name||''} ${s.description||''}`));
         if (gunRange) sel.push({
-          serviceId: String(gunRange.id), serviceName: gunRange.itinerary_name || gunRange.name,
-          timeSlot: 'afternoon', reason: 'Daytime shooting activity',
-          price_cad: gunRange.price_cad, price_usd: gunRange.price_usd, duration_hours: gunRange.duration_hours
+          serviceId: String(gunRange.id), serviceName: 'Daytime Shooting Activity',
+          timeSlot: 'afternoon', reason: (gunRange.itinerary_description || gunRange.description || 'Head out for gun range / clay shooting / hog hunting'),
+          ...calculatePricing(gunRange),
+          duration: gunRange.duration_hours ? `${gunRange.duration_hours}h` : '3-4h',
+          features: ['Outdoors', 'Adrenaline', 'Group Activity'],
+          timeSlot: 'Afternoon',
+          image_url: gunRange.image_url
         });
       }
 
-      if (selections.dinner === 'fri_dinner_steak') {
+      if (selections.dinner === 'fri_dinner_steak_private_room') {
+        const steakPR = pickBy(s => /(steak|steakhouse)/i.test(`${s.name||''} ${s.itinerary_name||''}`) && /private\s*room/i.test(`${s.name||''} ${s.itinerary_name||''} ${s.description||''} ${s.itinerary_description||''}`));
+        if (steakPR) {
+          sel.push({
+            serviceId: String(steakPR.id), serviceName: 'Private Room at the Steakhouse',
+            timeSlot: 'evening', reason: (steakPR.itinerary_description || steakPR.description || 'Private dining room at a top steakhouse'),
+            ...calculatePricing(steakPR),
+            duration: steakPR.duration_hours ? `${steakPR.duration_hours}h` : '2-3h',
+            features: ['Private Room', 'Premium Steaks', 'Group Dining'],
+            timeSlot: 'Evening',
+            image_url: steakPR.image_url || null
+          });
+        } else {
+          const steak = pickBy(s => /steak|steakhouse/i.test(`${s.name || ''} ${s.itinerary_name || ''}`));
+          if (steak) sel.push({
+            serviceId: String(steak.id), serviceName: 'Steakhouse Dinner',
+            timeSlot: 'evening', reason: (steak.itinerary_description || steak.description || 'Premium steakhouse dinner before the night out'),
+            ...calculatePricing(steak),
+            duration: steak.duration_hours ? `${steak.duration_hours}h` : '2-3h',
+            image_url: steak.image_url || null
+          });
+        }
+      } else if (selections.dinner === 'fri_dinner_private_chef') {
+        const pc = pickBy(s => /private\s*chef/i.test(`${s.name||''} ${s.description||''} ${s.itinerary_name||''} ${s.itinerary_description||''}`));
+        if (pc) {
+          sel.push({
+            serviceId: String(pc.id), serviceName: (pc.itinerary_name || pc.name || 'Private Chef'),
+            timeSlot: 'evening', reason: (pc.itinerary_description || pc.description || 'Private chef dinner at your place'),
+            ...calculatePricing(pc),
+            duration: pc.duration_hours ? `${pc.duration_hours}h` : '2-3h',
+            features: ['At the House', 'Chef Experience'],
+            timeSlot: 'Evening',
+            image_url: pc.image_url || null
+          });
+        } else {
+          sel.push({
+            serviceId: 'placeholder_private_chef', serviceName: 'Private Chef',
+            timeSlot: 'evening', reason: 'Private chef dinner at your place', price_usd: null, price_per_person: null, duration_hours: null
+          });
+        }
+      } else if (selections.dinner === 'fri_dinner_reservation') {
+        const rest = pickBy(s => /reservation/i.test(`${s.name||''} ${s.description||''} ${s.itinerary_name||''} ${s.itinerary_description||''}`))
+          || pickBy(s => /(restaurant)/i.test(`${s.category||''} ${s.type||''}`) || /restaurant/i.test(s.name || ''));
+        if (rest) {
+          sel.push({
+            serviceId: String(rest.id), serviceName: 'Dinner Reservation',
+            timeSlot: 'evening', reason: (rest.itinerary_description || rest.description || 'Reserved dinner at a great Austin spot'),
+            ...calculatePricing(rest),
+            duration: rest.duration_hours ? `${rest.duration_hours}h` : '2-3h',
+            image_url: rest.image_url || null
+          });
+        } else {
+          sel.push({
+            serviceId: 'placeholder_dinner_res', serviceName: 'Dinner Reservation',
+            timeSlot: 'evening', reason: 'Reserved dinner at a great Austin spot', price_usd: null, price_per_person: null, duration_hours: null
+          });
+        }
+      } else if (selections.dinner === 'fri_dinner_hibachi') {
+        const hib = pickBy(s => /hibachi/i.test(`${s.name||''} ${s.description||''}`));
+        if (hib) {
+          sel.push({
+            serviceId: String(hib.id), serviceName: 'Hibachi Chef',
+            timeSlot: 'evening', reason: (hib.itinerary_description || hib.description || 'Private hibachi chef experience at your place'),
+            ...calculatePricing(hib),
+            duration: hib.duration_hours ? `${hib.duration_hours}h` : '2-3h',
+            features: ['At the House', 'Chef Experience'],
+            timeSlot: 'Evening',
+            image_url: hib.image_url || null
+          });
+        } else {
+          sel.push({
+            serviceId: 'placeholder_hibachi', serviceName: 'Hibachi Chef',
+            timeSlot: 'evening', reason: 'Private hibachi chef experience at your place', price_usd: null, price_per_person: null, duration_hours: null
+          });
+        }
+      } else if (selections.dinner === 'fri_dinner_steak') {
         const steak = pickBy(s => /steak|steakhouse/i.test(`${s.name || ''} ${s.itinerary_name || ''}`));
         if (steak) {
           sel.push({
-            serviceId: String(steak.id), serviceName: steak.itinerary_name || steak.name,
-            timeSlot: 'evening', reason: 'Steakhouse dinner',
-            price_cad: steak.price_cad, price_usd: steak.price_usd, duration_hours: steak.duration_hours
+            serviceId: String(steak.id), serviceName: 'Steakhouse Dinner',
+            timeSlot: 'evening', reason: (steak.itinerary_description || steak.description || 'Premium steakhouse dinner before the night out'),
+            ...calculatePricing(steak),
+            duration: steak.duration_hours ? `${steak.duration_hours}h` : '2-3h',
+            image_url: steak.image_url || null
           });
         } else {
           sel.push({
             serviceId: 'placeholder_steakhouse', serviceName: 'Steakhouse Dinner',
-            timeSlot: 'evening', reason: 'Steakhouse dinner', price_cad: null, price_usd: null, duration_hours: null
+            timeSlot: 'evening', reason: 'Premium steakhouse dinner before the night out', price_usd: null, price_per_person: null, duration_hours: null
           });
         }
       } else if (selections.dinner === 'fri_dinner_house') {
         sel.push({
           serviceId: 'placeholder_house_dinner', serviceName: 'Dinner at the House',
-          timeSlot: 'evening', reason: 'Keep it easy at the house', price_cad: null, price_usd: null, duration_hours: null
+          timeSlot: 'evening', reason: 'Keep it easy at the house with food and drinks', price_usd: null, price_per_person: null, duration_hours: null
         });
       }
 
-      if (selections.night === 'fri_night_comedy') {
+      // Handle night selections
+      if (selections.night === 'fri_night_bars') {
+        const barHopping = pickBy(s => 
+          /dirty.*six|bar.*hop/i.test(`${s.name||''} ${s.itinerary_name||''} ${s.description||''} ${s.itinerary_description||''}`)
+        );
+        if (barHopping) {
+          sel.push({
+            serviceId: String(barHopping.id), 
+            serviceName: barHopping.itinerary_name || barHopping.name || 'Dirty Six Bar Hop',
+            timeSlot: 'night', 
+            reason: (barHopping.itinerary_description || barHopping.description || 'Experience Austin\'s best nightlife scene'),
+            ...calculatePricing(barHopping),
+            duration: barHopping.duration_hours ? `${barHopping.duration_hours}h` : '3-4h',
+            features: ['Nightlife', 'Bar Crawl', 'Austin Scene'],
+            timeSlot: 'Night',
+            image_url: barHopping.image_url
+          });
+        } else {
+          sel.push({
+            serviceId: 'placeholder_bar_hopping', serviceName: 'Dirty Six Bar Hop',
+            timeSlot: 'night', reason: 'Experience Austin\'s best nightlife scene', 
+            price_usd: null, price_per_person: null, duration_hours: null
+          });
+        }
+      } else if (selections.night === 'fri_night_comedy') {
         const comedy = pickBy(s => /comedy/i.test(`${s.name||''} ${s.description||''}`));
-        if (comedy) sel.push({
-          serviceId: String(comedy.id), serviceName: comedy.itinerary_name || comedy.name,
-          timeSlot: 'night', reason: 'Comedy club',
-          price_cad: comedy.price_cad, price_usd: comedy.price_usd, duration_hours: comedy.duration_hours
-        });
-      } else if (selections.night === 'fri_night_bars') {
-        const bar = pickBy(s => (s.category === 'bar') || /bar/i.test(s.name || ''));
-        if (bar) sel.push({
-          serviceId: String(bar.id), serviceName: bar.itinerary_name || bar.name,
-          timeSlot: 'night', reason: 'Bar hopping',
-          price_cad: bar.price_cad, price_usd: bar.price_usd, duration_hours: bar.duration_hours
-        });
+        if (comedy) {
+          sel.push({
+            serviceId: String(comedy.id), 
+            serviceName: comedy.itinerary_name || comedy.name || 'Comedy Club',
+            timeSlot: 'night', 
+            reason: (comedy.itinerary_description || comedy.description || 'Laughs and drinks at Austin\'s comedy scene'),
+            ...calculatePricing(comedy),
+            duration: comedy.duration_hours ? `${comedy.duration_hours}h` : '2-3h',
+            features: ['Comedy Show', 'Entertainment', 'Drinks'],
+            timeSlot: 'Night',
+            image_url: comedy.image_url
+          });
+        } else {
+          sel.push({
+            serviceId: 'placeholder_comedy', serviceName: 'Comedy Club',
+            timeSlot: 'night', reason: 'Laughs and drinks at Austin\'s comedy scene', 
+            price_usd: null, price_per_person: null, duration_hours: null
+          });
+        }
       } else if (selections.night === 'fri_night_strip') {
-        const strip = pickBy(s => (s.category === 'strip_club') || /gentlemen/i.test(s.name || ''));
-        if (strip) sel.push({
-          serviceId: String(strip.id), serviceName: strip.itinerary_name || strip.name,
-          timeSlot: 'night', reason: "Gentlemen's club",
-          price_cad: strip.price_cad, price_usd: strip.price_usd, duration_hours: strip.duration_hours
-        });
+        const strip = pickBy(s => /strip|gentleman|club/i.test(`${s.name||''} ${s.description||''}`));
+        if (strip) {
+          sel.push({
+            serviceId: String(strip.id), 
+            serviceName: strip.itinerary_name || strip.name || 'Gentleman\'s Club',
+            timeSlot: 'night', 
+            reason: (strip.itinerary_description || strip.description || 'VIP experience at a premium gentleman\'s club'),
+            ...calculatePricing(strip),
+            duration: strip.duration_hours ? `${strip.duration_hours}h` : '2-3h',
+            features: ['VIP Experience', 'Entertainment', 'Bachelor Party'],
+            timeSlot: 'Night',
+            image_url: strip.image_url
+          });
+        } else {
+          sel.push({
+            serviceId: 'placeholder_strip', serviceName: 'Gentleman\'s Club',
+            timeSlot: 'night', reason: 'VIP experience at a premium gentleman\'s club', 
+            price_usd: null, price_per_person: null, duration_hours: null
+          });
+        }
       }
     }
 
@@ -5123,26 +5456,107 @@ async searchServicesForConversation(conversation) {
       if (selections.lake === 'sat_lake_booze') {
         const booze = pickBy(s => /booze\s*cruise/i.test(s.name || ''));
         if (booze) sel.push({
-          serviceId: String(booze.id), serviceName: booze.itinerary_name || booze.name,
-          timeSlot: 'afternoon', reason: 'Booze Cruise on the lake',
-          price_cad: booze.price_cad, price_usd: booze.price_usd, duration_hours: booze.duration_hours
+          serviceId: String(booze.id), serviceName: 'Lake Travis Booze Cruise',
+          timeSlot: 'afternoon', reason: (booze.itinerary_description || booze.description || 'Private party boat on the lake'),
+          ...calculatePricing(booze),
+          duration: booze.duration_hours ? `${booze.duration_hours}h` : '3-4h',
+          features: ['Private Boat', 'Drinks', 'Music'],
+          timeSlot: 'Afternoon',
+          image_url: booze.image_url
         });
+      } else if (selections.lake === 'sat_lake_other' && selections.activity) {
+        if (selections.activity === 'sat_activity_topgolf') {
+          const topgolf = pickBy(s => /topgolf/i.test(s.name || ''));
+          if (topgolf) {
+            sel.push({
+              serviceId: String(topgolf.id), serviceName: 'Topgolf Reservation',
+              timeSlot: 'afternoon', reason: (topgolf.itinerary_description || topgolf.description || 'Private bay at Topgolf for the group'),
+              ...calculatePricing(topgolf),
+              duration: topgolf.duration_hours ? `${topgolf.duration_hours}h` : '2-3h',
+              image_url: topgolf.image_url
+            });
+          } else {
+            sel.push({
+              serviceId: 'placeholder_topgolf', serviceName: 'Topgolf Reservation',
+              timeSlot: 'afternoon', reason: 'Private bay at Topgolf for the group',
+              price_usd: null, price_per_person: null, duration_hours: null
+            });
+          }
+        } else if (selections.activity === 'sat_activity_pickleball') {
+          const pickleball = pickBy(s => /pickleball/i.test(s.name || ''));
+          if (pickleball) {
+            sel.push({
+              serviceId: String(pickleball.id), serviceName: 'Pickleball Court Rental',
+              timeSlot: 'afternoon', reason: (pickleball.itinerary_description || pickleball.description || 'Private pickleball courts for the group'),
+              ...calculatePricing(pickleball),
+              duration: pickleball.duration_hours ? `${pickleball.duration_hours}h` : '2-3h',
+              image_url: pickleball.image_url
+            });
+          } else {
+            sel.push({
+              serviceId: 'placeholder_pickleball', serviceName: 'Pickleball Court Rental',
+              timeSlot: 'afternoon', reason: 'Private pickleball courts for the group',
+              price_usd: null, price_per_person: null, duration_hours: null
+            });
+          }
+        } else if (selections.activity === 'sat_activity_pitchputt') {
+          const pitchputt = pickBy(s => /pitch.*putt|butler/i.test(s.name || ''));
+          if (pitchputt) {
+            sel.push({
+              serviceId: String(pitchputt.id), serviceName: 'Butler Pitch & Putt',
+              timeSlot: 'afternoon', reason: (pitchputt.itinerary_description || pitchputt.description || 'Mini golf and pitch & putt course'),
+              ...calculatePricing(pitchputt),
+              duration: pitchputt.duration_hours ? `${pitchputt.duration_hours}h` : '2-3h',
+              image_url: pitchputt.image_url
+            });
+          } else {
+            sel.push({
+              serviceId: 'placeholder_pitchputt', serviceName: 'Butler Pitch & Putt',
+              timeSlot: 'afternoon', reason: 'Mini golf and pitch & putt course',
+              price_usd: null, price_per_person: null, duration_hours: null
+            });
+          }
+        } else if (selections.activity === 'sat_activity_karting') {
+          const karting = pickBy(s => /kart|go.*kart/i.test(s.name || ''));
+          if (karting) {
+            sel.push({
+              serviceId: String(karting.id), serviceName: 'Go-Karting',
+              timeSlot: 'afternoon', reason: (karting.itinerary_description || karting.description || 'High-speed go-kart racing for the group'),
+              ...calculatePricing(karting),
+              duration: karting.duration_hours ? `${karting.duration_hours}h` : '2-3h',
+              features: ['Racing', 'Competitive Fun'],
+              timeSlot: 'Afternoon',
+              image_url: karting.image_url
+            });
+          } else {
+            sel.push({
+              serviceId: 'placeholder_karting', serviceName: 'Go-Karting',
+              timeSlot: 'afternoon', reason: 'High-speed go-kart racing for the group',
+              price_usd: null, price_per_person: null, duration_hours: null
+            });
+          }
+        }
       }
-      // sat_lake_other -> leave afternoon open
 
       if (selections.catering === 'sat_cater_bbq') {
         const bbq = pickBy(s => /bbq/i.test(`${s.name||''} ${s.description||''}`));
         if (bbq) sel.push({
-          serviceId: String(bbq.id), serviceName: bbq.itinerary_name || bbq.name,
-          timeSlot: 'evening', reason: 'BBQ catering after the lake',
-          price_cad: bbq.price_cad, price_usd: bbq.price_usd, duration_hours: bbq.duration_hours
+          serviceId: String(bbq.id), serviceName: 'BBQ Catering',
+          timeSlot: 'evening', reason: (bbq.itinerary_description || bbq.description || 'BBQ catering at the house'),
+          ...calculatePricing(bbq),
+          duration: bbq.duration_hours ? `${bbq.duration_hours}h` : '2-3h',
+          features: ['At the House', 'Texas BBQ'], timeSlot: 'Evening',
+          image_url: bbq.image_url
         });
       } else if (selections.catering === 'sat_cater_hibachi') {
         const hibachi = pickBy(s => /hibachi/i.test(`${s.name||''} ${s.description||''}`));
         if (hibachi) sel.push({
-          serviceId: String(hibachi.id), serviceName: hibachi.itinerary_name || hibachi.name,
-          timeSlot: 'evening', reason: 'Private hibachi chef at the house',
-          price_cad: hibachi.price_cad, price_usd: hibachi.price_usd, duration_hours: hibachi.duration_hours
+          serviceId: String(hibachi.id), serviceName: 'Hibachi Chef',
+          timeSlot: 'evening', reason: (hibachi.itinerary_description || hibachi.description || 'Private hibachi chef experience at your place'),
+          ...calculatePricing(hibachi),
+          duration: hibachi.duration_hours ? `${hibachi.duration_hours}h` : '2-3h',
+          features: ['At the House', 'Chef Experience'], timeSlot: 'Evening',
+          image_url: hibachi.image_url
         });
       }
     }
@@ -5151,25 +5565,33 @@ async searchServicesForConversation(conversation) {
       if (selections.breakfast === 'sunday_breakfast_yes') {
         const breakfast = pickBy(s => /breakfast\s*taco/i.test(s.name || ''));
         if (breakfast) sel.push({
-          serviceId: String(breakfast.id), serviceName: breakfast.itinerary_name || breakfast.name,
-          timeSlot: 'morning', reason: 'Recovery breakfast taco catering',
-          price_cad: breakfast.price_cad, price_usd: breakfast.price_usd, duration_hours: breakfast.duration_hours
+          serviceId: String(breakfast.id), serviceName: 'Breakfast Taco Catering',
+          timeSlot: 'morning', reason: (breakfast.itinerary_description || breakfast.description || 'Recovery breakfast taco catering'),
+          ...calculatePricing(breakfast),
+          duration: breakfast.duration_hours ? `${breakfast.duration_hours}h` : '1-2h',
+          image_url: breakfast.image_url
         });
       }
 
       if (selections.recovery === 'sunday_recovery_massage') {
         const massage = pickBy(s => /massage/i.test(`${s.name||''} ${s.description||''}`));
         if (massage) sel.push({
-          serviceId: String(massage.id), serviceName: massage.itinerary_name || massage.name,
-          timeSlot: 'afternoon', reason: 'On-site chair massages for recovery',
-          price_cad: massage.price_cad, price_usd: massage.price_usd, duration_hours: massage.duration_hours
+          serviceId: String(massage.id), serviceName: 'On-Site Chair Massages',
+          timeSlot: 'afternoon', reason: (massage.itinerary_description || massage.description || 'Professional massage therapists come to your location for relaxing chair massages'),
+          ...calculatePricing(massage),
+          duration: massage.duration_hours ? `${massage.duration_hours}h` : '2-3h',
+          image_url: massage.image_url
         });
       } else if (selections.recovery === 'sunday_recovery_sauna') {
         const sauna = pickBy(s => /sauna|cold\s*plunge/i.test(`${s.name||''} ${s.description||''}`));
         if (sauna) sel.push({
-          serviceId: String(sauna.id), serviceName: sauna.itinerary_name || sauna.name,
-          timeSlot: 'afternoon', reason: 'Sauna & cold plunge rental for recovery',
-          price_cad: sauna.price_cad, price_usd: sauna.price_usd, duration_hours: sauna.duration_hours
+          serviceId: String(sauna.id), serviceName: 'Sauna & Cold Plunge Rental',
+          timeSlot: 'afternoon', reason: (sauna.itinerary_description || sauna.description || 'Mobile sauna and cold plunge setup delivered to your location for the ultimate recovery experience'),
+          ...calculatePricing(sauna),
+          duration: sauna.duration_hours ? `${sauna.duration_hours}h` : '3-4h',
+          features: ['Mobile Setup', 'Sauna & Cold Plunge', 'Recovery Experience', 'At Your Location'],
+          timeSlot: 'Afternoon',
+          image_url: sauna.image_url
         });
       }
     }

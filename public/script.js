@@ -989,6 +989,9 @@ class ChatInterface {
             // Hide loading indicator before showing response
             this.hideLoadingIndicator();
             
+            // Disable previous guided cards before adding new response
+            this.disableAllPreviousGuidedCards();
+            
             // Check if response includes interactive elements
             if (result.interactive) {
                 this.addInteractiveMessage(result.response, 'bot', result.interactive);
@@ -1118,6 +1121,9 @@ class ChatInterface {
             
             // Hide loading indicator before showing response
             this.hideLoadingIndicator();
+            
+            // Disable previous guided cards before adding new response
+            this.disableAllPreviousGuidedCards();
             
             // Check if response includes interactive elements
             if (result.interactive) {
@@ -1569,53 +1575,146 @@ class ChatInterface {
     }
 
     createGuidedOptionCard(option, messageDiv, guidedContainer) {
-        const cardElement = document.createElement('div');
-        cardElement.className = 'guided-option-card';
-        cardElement.dataset.value = option.value;
-        
-        // Determine image source (prefer explicit option image fields)
-        const imageUrl = option.image_url || option.imageUrl || option.image || 'images/background.jpg';
-        
-        // Format pricing similar to OG card: From: $X/person | $Y total
-        let pricePerPerson = '';
-        let totalPrice = '';
-        if (option.price_per_person) {
-            pricePerPerson = `$${Number(option.price_per_person).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/person`;
-        }
-        if (option.price_cad) {
-            totalPrice = `$${Number(option.price_cad).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total`;
-        } else if (option.price_total) {
-            totalPrice = `$${Number(option.price_total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total`;
-        }
-        
-        const showPricing = pricePerPerson || totalPrice;
-        const pricingHtml = showPricing
+        // ===== DEBUG BLOCK =====
+        const DEBUG = true; // flip to false to silence logs
+        const label =
+          `💵 [GuidedCard Price] ` + (option?.title || option?.value || '(untitled)');
+      
+        if (DEBUG) console.groupCollapsed(label);
+        try {
+          // Safe inspect of option payload
+          if (DEBUG) {
+            let safeOption = option;
+            try { safeOption = JSON.parse(JSON.stringify(option)); } catch {}
+            console.log('Option payload:', safeOption);
+          }
+      
+          // Helper (debug-only) money parser for alt-key preview
+          const __parseMoney = (value) => {
+            if (value == null) return null;
+            if (typeof value === 'number' && !isNaN(value)) return value;
+            const m = String(value).replace(/,/g, '').match(/(\d+(\.\d+)?)/);
+            return m ? Number(m[1]) : null;
+          };
+      
+          // Resolve image and group size
+          const imageUrl =
+            option.image_url || option.imageUrl || option.image || 'images/background.jpg';
+      
+          const groupSize = (
+            this.tripFacts?.groupSize?.value ??
+            this.tripFacts?.groupSize ??
+            0
+          );
+      
+          if (DEBUG) {
+            console.log('imageUrl:', imageUrl);
+            console.log('groupSize:', groupSize, 'tripFacts:', this.tripFacts);
+          }
+      
+          // --- Pricing (existing behavior: expect numbers) ---
+          const hasCad = typeof option.price_cad === 'number' && !isNaN(option.price_cad);
+          const hasUsd = typeof option.price_usd === 'number' && !isNaN(option.price_usd);
+          const hasTot = typeof option.price_total === 'number' && !isNaN(option.price_total);
+      
+          const total = hasCad
+            ? option.price_cad
+            : (hasUsd ? option.price_usd : (hasTot ? option.price_total : null));
+      
+          const selectedTotalSource = hasCad
+            ? 'price_cad'
+            : (hasUsd ? 'price_usd' : (hasTot ? 'price_total' : null));
+      
+          const perPersonIsNumber =
+            typeof option.price_per_person === 'number' && !isNaN(option.price_per_person);
+      
+          const perPersonValue = perPersonIsNumber
+            ? option.price_per_person
+            : (total != null && groupSize > 0 ? Math.round(total / groupSize) : null);
+      
+          if (DEBUG) {
+            console.table({
+              price_cad: option.price_cad, type_price_cad: typeof option.price_cad,
+              price_usd: option.price_usd, type_price_usd: typeof option.price_usd,
+              price_total: option.price_total, type_price_total: typeof option.price_total,
+              price_per_person: option.price_per_person, type_price_per_person: typeof option.price_per_person,
+            });
+            console.log('selectedTotalSource:', selectedTotalSource, 'total:', total);
+            console.log('perPersonIsNumber:', perPersonIsNumber, 'perPersonValue:', perPersonValue);
+          }
+      
+          // Format strings (unchanged logic)
+          const pricePerPerson = (perPersonValue != null)
+            ? `$${Number(perPersonValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/person`
+            : '';
+      
+          const totalPrice = (total != null)
+            ? `$${Number(total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total`
+            : '';
+      
+          const showPricing = Boolean(pricePerPerson || totalPrice);
+      
+          if (DEBUG) {
+            console.log('Will render pricing?', showPricing, {
+              pricePerPerson, totalPrice
+            });
+            if (!showPricing) {
+              // If nothing rendered, show any price-looking alt keys + parsed guesses
+              const keys = Object.keys(option || {});
+              const altKeys = keys.filter(k =>
+                /(usd|cad|price|amount|total|per_person|perPerson|pp)/i.test(k)
+              );
+              const altPreview = {};
+              const altParsed = {};
+              for (const k of altKeys) {
+                altPreview[k] = option[k];
+                altParsed[k] = __parseMoney(option[k]);
+              }
+              console.warn('No pricing rendered. Price-like keys found:', altPreview);
+              console.warn('Numeric parse guesses for those keys:', altParsed);
+              if (groupSize === 0) {
+                console.warn('groupSize is 0 or missing, so we cannot derive per-person price from total.');
+              }
+            }
+          }
+      
+          // Build pricing HTML
+          const pricingHtml = showPricing
             ? `<div class="guided-option-pricing">
-                    <div class="guided-option-price-row">
-                        <span class="text-muted">From:</span>
-                        ${pricePerPerson ? `<span class="guided-option-price-pp">${pricePerPerson}</span>` : ''}
-                        ${pricePerPerson && totalPrice ? `<span class="guided-option-price-sep">|</span>` : ''}
-                        ${totalPrice ? `<span class="guided-option-price-total">${totalPrice}</span>` : ''}
-                    </div>
+                 <div class="guided-option-price-row">
+                   <span class="text-muted">From:</span>
+                   ${pricePerPerson ? `<span class="guided-option-price-pp">${pricePerPerson}</span>` : ''}
+                   ${pricePerPerson && totalPrice ? `<span class="guided-option-price-sep">|</span>` : ''}
+                   ${totalPrice ? `<span class="guided-option-price-total">${totalPrice}</span>` : ''}
+                 </div>
                </div>`
             : '';
-        
-        cardElement.innerHTML = `
+      
+          // ===== RENDER CARD =====
+          const cardElement = document.createElement('div');
+          cardElement.className = 'guided-option-card';
+          cardElement.dataset.value = option.value;
+      
+          cardElement.innerHTML = `
             <div class="guided-option-image" style="background-image: url('${imageUrl}')"></div>
             <div class="guided-option-body">
-                <h3 class="guided-option-title">${option.title}</h3>
-                ${option.description ? `<div class="guided-option-description">${option.description}</div>` : ''}
-                ${pricingHtml}
+              <h3 class="guided-option-title">${option.title}</h3>
+              ${option.description ? `<div class="guided-option-description">${option.description}</div>` : ''}
             </div>
+            ${pricingHtml}
             <div class="select-indicator"></div>
-        `;
-        
-        // Click handler: clicking the card selects the option
-        const handleSelect = () => this.handleGuidedOptionSelection(option, messageDiv, guidedContainer);
-        cardElement.onclick = handleSelect;
-        
-        return cardElement;
-    }
+          `;
+      
+          // Click handler (unchanged)
+          const handleSelect = () => this.handleGuidedOptionSelection(option, messageDiv, guidedContainer);
+          cardElement.onclick = handleSelect;
+      
+          return cardElement;
+        } finally {
+          if (DEBUG) console.groupEnd();
+        }
+      }
+      
 
     handleGuidedOptionSelection(option, messageDiv, guidedContainer) {
         const value = option.value;
@@ -1649,6 +1748,19 @@ class ChatInterface {
 
         // Send the option value as the message to the backend
         this.sendButtonResponse(value);
+    }
+
+    // NEW: Disable all previous guided option cards when conversation progresses
+    disableAllPreviousGuidedCards() {
+        const allCards = this.messagesContainer.querySelectorAll('.guided-option-card:not(.disabled)');
+        allCards.forEach(card => {
+            // Only disable cards that haven't been selected yet
+            if (!card.classList.contains('selected')) {
+                card.classList.add('disabled');
+                card.style.pointerEvents = 'none';
+                card.style.opacity = '0.5';
+            }
+        });
     }
 
     generateId() {
