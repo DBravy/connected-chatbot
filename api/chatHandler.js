@@ -2006,7 +2006,8 @@ async generateItinerary(conversationData) {
           groupSuitability: 'Perfect for groups',
           price_cad: partyBusService.price_cad,
           price_usd: partyBusService.price_usd,
-          duration_hours: partyBusService.duration_hours
+          duration_hours: partyBusService.duration_hours,
+          image_url: partyBusService.image_url
         });
       }
     } else if (guidedFirstDay.airportPickup === 'sprinter_bbq_tour') {
@@ -2024,7 +2025,8 @@ async generateItinerary(conversationData) {
           groupSuitability: 'Perfect for groups',
           price_cad: sprinterService.price_cad,
           price_usd: sprinterService.price_usd,
-          duration_hours: sprinterService.duration_hours
+          duration_hours: sprinterService.duration_hours,
+          image_url: sprinterService.image_url
         });
       }
     }
@@ -2044,7 +2046,8 @@ async generateItinerary(conversationData) {
           groupSuitability: 'Great for groups',
           price_cad: barService.price_cad,
           price_usd: barService.price_usd,
-          duration_hours: barService.duration_hours
+          duration_hours: barService.duration_hours,
+          image_url: barService.image_url
         });
       }
     } else if (guidedFirstDay.eveningActivity === 'steakhouse') {
@@ -2061,7 +2064,8 @@ async generateItinerary(conversationData) {
           groupSuitability: 'Perfect for groups',
           price_cad: steakhouseService.price_cad,
           price_usd: steakhouseService.price_usd,
-          duration_hours: steakhouseService.duration_hours
+          duration_hours: steakhouseService.duration_hours,
+          image_url: steakhouseService.image_url
         });
       }
     } else if (guidedFirstDay.eveningActivity === 'strip_club') {
@@ -2078,7 +2082,8 @@ async generateItinerary(conversationData) {
           groupSuitability: 'Adult entertainment',
           price_cad: stripClubService.price_cad,
           price_usd: stripClubService.price_usd,
-          duration_hours: stripClubService.duration_hours
+          duration_hours: stripClubService.duration_hours,
+          image_url: stripClubService.image_url
         });
       }
     }
