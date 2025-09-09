@@ -1381,7 +1381,7 @@ class ChatInterface {
                           </div>
                     
                           <div class="service-main">
-                            <div class="service-image" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"></div>
+                            <div class="service-image" style="background-image: url('${(service.image_url || '').replace(/'/g, "&#39;") || 'images/background.jpg'}'); background-size: cover; background-position: center;"></div>
                             <div class="service-title">${serviceName}</div>
                           </div>
                     
@@ -1573,35 +1573,46 @@ class ChatInterface {
         cardElement.className = 'guided-option-card';
         cardElement.dataset.value = option.value;
         
-        // Format pricing
-        let priceDisplay = '';
+        // Determine image source (prefer explicit option image fields)
+        const imageUrl = option.image_url || option.imageUrl || option.image || 'images/background.jpg';
+        
+        // Format pricing similar to OG card: From: $X/person | $Y total
+        let pricePerPerson = '';
+        let totalPrice = '';
         if (option.price_per_person) {
-            priceDisplay = `$${option.price_per_person} CAD per person`;
-        } else if (option.price_cad) {
-            priceDisplay = `$${option.price_cad} CAD total`;
+            pricePerPerson = `$${Number(option.price_per_person).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/person`;
+        }
+        if (option.price_cad) {
+            totalPrice = `$${Number(option.price_cad).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total`;
+        } else if (option.price_total) {
+            totalPrice = `$${Number(option.price_total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total`;
         }
         
-        cardElement.innerHTML = `
-            <div class="guided-option-content">
-                <div class="guided-option-header">
-                    <div class="guided-option-title">${option.title}</div>
-                    ${priceDisplay ? `<div class="guided-option-price">${priceDisplay}</div>` : ''}
-                </div>
-                <div class="guided-option-main">
-                    <div class="guided-option-image"></div>
-                    <div class="guided-option-details">
-                        <div class="guided-option-description">${option.description}</div>
-                        <div class="guided-option-features">
-                            ${option.features.map(feature => `<span class="guided-option-feature">${feature}</span>`).join('')}
-                        </div>
+        const showPricing = pricePerPerson || totalPrice;
+        const pricingHtml = showPricing
+            ? `<div class="guided-option-pricing">
+                    <div class="guided-option-price-row">
+                        <span class="text-muted">From:</span>
+                        ${pricePerPerson ? `<span class="guided-option-price-pp">${pricePerPerson}</span>` : ''}
+                        ${pricePerPerson && totalPrice ? `<span class="guided-option-price-sep">|</span>` : ''}
+                        ${totalPrice ? `<span class="guided-option-price-total">${totalPrice}</span>` : ''}
                     </div>
-                </div>
+               </div>`
+            : '';
+        
+        cardElement.innerHTML = `
+            <div class="guided-option-image" style="background-image: url('${imageUrl}')"></div>
+            <div class="guided-option-body">
+                <h3 class="guided-option-title">${option.title}</h3>
+                ${option.description ? `<div class="guided-option-description">${option.description}</div>` : ''}
+                ${pricingHtml}
             </div>
             <div class="select-indicator"></div>
         `;
         
-        // Add click handler
-        cardElement.onclick = () => this.handleGuidedOptionSelection(option, messageDiv, guidedContainer);
+        // Click handler: clicking the card selects the option
+        const handleSelect = () => this.handleGuidedOptionSelection(option, messageDiv, guidedContainer);
+        cardElement.onclick = handleSelect;
         
         return cardElement;
     }

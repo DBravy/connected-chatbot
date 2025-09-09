@@ -1378,6 +1378,7 @@ async generateItinerary(conversationData) {
           // << critical: use price_cad / price_usd >>
           price_cad: meta.price_cad ?? null,
           price_usd: meta.price_usd ?? null,
+          image_url: meta.image_url ?? null,
       
           duration_hours: meta.duration_hours ?? toHours(s.estimatedDuration),
           reason: s.reason,
@@ -1794,7 +1795,8 @@ async generateItinerary(conversationData) {
             price_per_person: partyBusPerPerson,
             duration: partyBusPickup.duration_hours ? `${partyBusPickup.duration_hours}h` : '1h',
             features: ['Airport Pickup', 'Party Bus', 'Direct to House', 'Group Transport'],
-            timeSlot: 'Afternoon'
+            timeSlot: 'Afternoon',
+            image_url: partyBusPickup.image_url
           },
           {
             value: 'sprinter_bbq_tour',
@@ -1804,7 +1806,8 @@ async generateItinerary(conversationData) {
             price_per_person: sprinterPerPerson,
             duration: sprinterTour.duration_hours ? `${sprinterTour.duration_hours}h` : '4h',
             features: ['Airport Pickup', 'BBQ Tour', 'Beer Tasting', 'Immediate Party Start'],
-            timeSlot: 'Afternoon'
+            timeSlot: 'Afternoon',
+            image_url: sprinterTour.image_url
           }
         ]
       }
@@ -1836,7 +1839,8 @@ async generateItinerary(conversationData) {
         price_per_person: barService?.price_cad ? Math.round(barService.price_cad / groupSize) : null,
         duration: barService?.duration_hours ? `${barService.duration_hours}h` : '3-4h',
         features: ['Multiple Bars', 'Group Activities', 'Local Favorites', 'Night Out'],
-        timeSlot: 'Night'
+        timeSlot: 'Night',
+        image_url: barService?.image_url
       },
       {
         value: 'steakhouse',
@@ -1846,7 +1850,8 @@ async generateItinerary(conversationData) {
         price_per_person: steakhouseService?.price_cad ? Math.round(steakhouseService.price_cad / groupSize) : null,
         duration: steakhouseService?.duration_hours ? `${steakhouseService.duration_hours}h` : '2-3h',
         features: ['Premium Steaks', 'Group Dining', 'Fine Dining', 'Celebration Meal'],
-        timeSlot: 'Evening'
+        timeSlot: 'Evening',
+        image_url: steakhouseService?.image_url
       },
       {
         value: 'strip_club',
@@ -1856,7 +1861,8 @@ async generateItinerary(conversationData) {
         price_per_person: stripClubService?.price_cad ? Math.round(stripClubService.price_cad / groupSize) : null,
         duration: stripClubService?.duration_hours ? `${stripClubService.duration_hours}h` : '3-4h',
         features: ['VIP Access', 'Bachelor Party', 'Entertainment', 'Late Night'],
-        timeSlot: 'Night'
+        timeSlot: 'Night',
+        image_url: stripClubService?.image_url
       },
       {
         value: 'open_evening',
@@ -3918,7 +3924,9 @@ async searchServicesForConversation(conversation) {
         ser_base_price_cad,
   
         ser_default_price_usd, ser_minimum_price_usd,
-        ser_default_price_2_usd, ser_minimum_price_2_usd
+        ser_default_price_2_usd, ser_minimum_price_2_usd,
+  
+        ser_image_url, ser_in_app_image
       `;
   
       let query = this.supabase
@@ -3943,7 +3951,11 @@ async searchServicesForConversation(conversation) {
           s.ser_default_price_2_cad, s.ser_minimum_price_2_cad,
           s.ser_base_price_cad
         );
-  
+        
+        const inAppImage = Array.isArray(s.ser_in_app_image) && s.ser_in_app_image.length > 0
+          ? (s.ser_in_app_image[0]?.url || s.ser_in_app_image[0]?.URL || null)
+          : null;
+
         return {
           id: s.ser_id,
           name: s.ser_name,
@@ -3953,7 +3965,8 @@ async searchServicesForConversation(conversation) {
           itinerary_description: s.ser_itinerary_description || null,
           price_cad,
           price_usd,
-          duration_hours: s.ser_duration_hrs ?? null
+          duration_hours: s.ser_duration_hrs ?? null,
+          image_url: inAppImage || s.ser_image_url || null
         };
       });
   
@@ -4051,7 +4064,9 @@ async searchServicesForConversation(conversation) {
         ser_base_price_cad,
   
         ser_default_price_usd, ser_minimum_price_usd,
-        ser_default_price_2_usd, ser_minimum_price_2_usd
+        ser_default_price_2_usd, ser_minimum_price_2_usd,
+  
+        ser_image_url, ser_in_app_image
       `;
   
       const { data, error } = await this.supabase
@@ -4079,7 +4094,9 @@ async searchServicesForConversation(conversation) {
           s.ser_default_price_2_cad, s.ser_minimum_price_2_cad,
           s.ser_base_price_cad
         );
-  
+        const inAppImage = Array.isArray(s.ser_in_app_image) && s.ser_in_app_image.length > 0
+          ? (s.ser_in_app_image[0]?.url || s.ser_in_app_image[0]?.URL || null)
+          : null;
         return {
           id: s.ser_id,
           name: s.ser_name,
@@ -4089,7 +4106,8 @@ async searchServicesForConversation(conversation) {
           itinerary_description: s.ser_itinerary_description || null,
           price_cad,
           price_usd,
-          duration_hours: s.ser_duration_hrs ?? null
+          duration_hours: s.ser_duration_hrs ?? null,
+          image_url: inAppImage || s.ser_image_url || null
         };
       });
   
@@ -4444,7 +4462,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: breakfast.price_cad ? Math.round(breakfast.price_cad / groupSize) : null,
       duration: breakfast.duration_hours ? `${breakfast.duration_hours}h` : '1-2h',
       features: ['At the House', 'Group-Friendly', 'Austin Tacos'],
-      timeSlot: 'Morning'
+      timeSlot: 'Morning',
+      image_url: breakfast.image_url
     });
     if (gunRange) morningOptions.push({
       value: 'fri_morning_activity',
@@ -4454,7 +4473,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: gunRange.price_cad ? Math.round(gunRange.price_cad / groupSize) : null,
       duration: gunRange.duration_hours ? `${gunRange.duration_hours}h` : '3-4h',
       features: ['Outdoors', 'Adrenaline', 'Group Activity'],
-      timeSlot: 'Afternoon'
+      timeSlot: 'Afternoon',
+      image_url: gunRange.image_url
     });
 
     if (!morningOptions.length) return null;
@@ -4473,7 +4493,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: clay.price_cad ? Math.round(clay.price_cad / groupSize) : null,
       duration: clay.duration_hours ? `${clay.duration_hours}h` : '2-3h',
       features: ['Outdoors', 'Team Challenge'],
-      timeSlot: 'Afternoon'
+      timeSlot: 'Afternoon',
+      image_url: clay.image_url
     });
     if (range) shootingSubOptions.push({
       value: 'fri_morning_activity_range',
@@ -4483,7 +4504,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: range.price_cad ? Math.round(range.price_cad / groupSize) : null,
       duration: range.duration_hours ? `${range.duration_hours}h` : '2-3h',
       features: ['Range', 'Instructor'],
-      timeSlot: 'Afternoon'
+      timeSlot: 'Afternoon',
+      image_url: range.image_url
     });
     if (hog) shootingSubOptions.push({
       value: 'fri_morning_activity_hog',
@@ -4493,7 +4515,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: hog.price_cad ? Math.round(hog.price_cad / groupSize) : null,
       duration: hog.duration_hours ? `${hog.duration_hours}h` : '4-6h',
       features: ['Guided', 'Outdoors'],
-      timeSlot: 'Afternoon'
+      timeSlot: 'Afternoon',
+      image_url: hog.image_url
     });
 
     // Evening dinner: at house or steakhouse
@@ -4507,7 +4530,8 @@ async searchServicesForConversation(conversation) {
         price_per_person: null,
         duration: 'Flexible',
         features: ['Chill Vibes', 'Flexible Timing', 'No Travel'],
-        timeSlot: 'Evening'
+        timeSlot: 'Evening',
+        image_url: steak?.image_url
       }
     ];
     if (steak) dinnerOptions.push({
@@ -4518,7 +4542,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: steak.price_cad ? Math.round(steak.price_cad / groupSize) : null,
       duration: steak.duration_hours ? `${steak.duration_hours}h` : '2-3h',
       features: ['Group Dining', 'Premium Steaks'],
-      timeSlot: 'Evening'
+      timeSlot: 'Evening',
+      image_url: steak.image_url
     });
 
     // Night options: comedy club, bar hopping, strip club
@@ -4535,7 +4560,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: comedy.price_cad ? Math.round(comedy.price_cad / groupSize) : null,
       duration: comedy.duration_hours ? `${comedy.duration_hours}h` : '2h',
       features: ['Seated Show', 'Fun Night Out'],
-      timeSlot: 'Night'
+      timeSlot: 'Night',
+      image_url: comedy.image_url
     });
     if (bar) nightOptions.push({
       value: 'fri_night_bars',
@@ -4545,7 +4571,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: bar.price_cad ? Math.round(bar.price_cad / groupSize) : null,
       duration: bar.duration_hours ? `${bar.duration_hours}h` : '3-4h',
       features: ['Multiple Bars', 'Group Vibe'],
-      timeSlot: 'Night'
+      timeSlot: 'Night',
+      image_url: bar.image_url
     });
     if (strip) nightOptions.push({
       value: 'fri_night_strip',
@@ -4555,7 +4582,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: strip.price_cad ? Math.round(strip.price_cad / groupSize) : null,
       duration: strip.duration_hours ? `${strip.duration_hours}h` : '3-4h',
       features: ['VIP', 'Bachelor Party'],
-      timeSlot: 'Night'
+      timeSlot: 'Night',
+      image_url: strip.image_url
     });
 
     // Persist a small guided state for this day
@@ -4585,7 +4613,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: booze.price_cad ? Math.round(booze.price_cad / groupSize) : null,
       duration: booze.duration_hours ? `${booze.duration_hours}h` : '3-4h',
       features: ['Private Boat', 'Drinks', 'Music'],
-      timeSlot: 'Afternoon'
+      timeSlot: 'Afternoon',
+      image_url: booze.image_url
     });
     lakeOptions.push({
       value: 'sat_lake_other',
@@ -4595,7 +4624,8 @@ async searchServicesForConversation(conversation) {
       price_per_person: altDay?.price_cad ? Math.round(altDay.price_cad / groupSize) : null,
       duration: altDay?.duration_hours ? `${altDay.duration_hours}h` : '3-4h',
       features: ['Flexible'],
-      timeSlot: 'Afternoon'
+      timeSlot: 'Afternoon',
+      image_url: altDay?.image_url
     });
 
     conversation.dayByDayPlanning.guided ||= {};
@@ -4665,7 +4695,8 @@ async searchServicesForConversation(conversation) {
             price_per_person: null,
             duration: 'Flexible',
             features: ['Chill Vibes', 'Flexible Timing', 'No Travel'],
-            timeSlot: 'Evening'
+            timeSlot: 'Evening',
+            image_url: steak?.image_url
           }
         ];
         if (steak) opts.push({
@@ -4676,7 +4707,8 @@ async searchServicesForConversation(conversation) {
           price_per_person: steak.price_cad ? Math.round(steak.price_cad / groupSize) : null,
           duration: steak.duration_hours ? `${steak.duration_hours}h` : '2-3h',
           features: ['Group Dining', 'Premium Steaks'],
-          timeSlot: 'Evening'
+          timeSlot: 'Evening',
+          image_url: steak.image_url
         });
 
         return {
@@ -4708,7 +4740,8 @@ async searchServicesForConversation(conversation) {
           price_cad: comedy.price_cad,
           price_per_person: comedy.price_cad ? Math.round(comedy.price_cad / groupSize) : null,
           duration: comedy.duration_hours ? `${comedy.duration_hours}h` : '2h',
-          features: ['Seated Show', 'Fun Night Out'], timeSlot: 'Night'
+          features: ['Seated Show', 'Fun Night Out'], timeSlot: 'Night',
+          image_url: comedy.image_url
         });
         if (bar) opts.push({
           value: 'fri_night_bars', title: 'Bar Hopping',
@@ -4716,7 +4749,8 @@ async searchServicesForConversation(conversation) {
           price_cad: bar.price_cad,
           price_per_person: bar.price_cad ? Math.round(bar.price_cad / groupSize) : null,
           duration: bar.duration_hours ? `${bar.duration_hours}h` : '3-4h',
-          features: ['Multiple Bars', 'Group Vibe'], timeSlot: 'Night'
+          features: ['Multiple Bars', 'Group Vibe'], timeSlot: 'Night',
+          image_url: bar.image_url
         });
         if (strip) opts.push({
           value: 'fri_night_strip', title: 'Strip Club',
@@ -4724,7 +4758,8 @@ async searchServicesForConversation(conversation) {
           price_cad: strip.price_cad,
           price_per_person: strip.price_cad ? Math.round(strip.price_cad / groupSize) : null,
           duration: strip.duration_hours ? `${strip.duration_hours}h` : '3-4h',
-          features: ['VIP', 'Bachelor Party'], timeSlot: 'Night'
+          features: ['VIP', 'Bachelor Party'], timeSlot: 'Night',
+          image_url: strip.image_url
         });
 
         return { response: 'For the night, pick your vibe.', interactive: { type: 'guided_cards', options: opts } };
@@ -4779,7 +4814,8 @@ async searchServicesForConversation(conversation) {
           price_cad: bbq.price_cad,
           price_per_person: bbq.price_cad ? Math.round(bbq.price_cad / groupSize) : null,
           duration: bbq.duration_hours ? `${bbq.duration_hours}h` : '2-3h',
-          features: ['At the House', 'Texas BBQ'], timeSlot: 'Evening'
+          features: ['At the House', 'Texas BBQ'], timeSlot: 'Evening',
+          image_url: bbq.image_url
         });
         if (hibachi) opts.push({
           value: 'sat_cater_hibachi', title: 'Hibachi Chef',
@@ -4787,7 +4823,8 @@ async searchServicesForConversation(conversation) {
           price_cad: hibachi.price_cad,
           price_per_person: hibachi.price_cad ? Math.round(hibachi.price_cad / groupSize) : null,
           duration: hibachi.duration_hours ? `${hibachi.duration_hours}h` : '2-3h',
-          features: ['At the House', 'Chef Experience'], timeSlot: 'Evening'
+          features: ['At the House', 'Chef Experience'], timeSlot: 'Evening',
+          image_url: hibachi.image_url
         });
 
         return { response: 'After the lake, do you want BBQ catering or a Hibachi chef?', interactive: { type: 'guided_cards', options: opts } };
@@ -4909,7 +4946,8 @@ async searchServicesForConversation(conversation) {
           price_per_person: massage.price_cad ? Math.round(massage.price_cad / groupSize) : null,
           duration: massage.duration_hours ? `${massage.duration_hours}h` : '2-3h',
           features: ['On-Site Service', 'Professional Therapists', 'Recovery Focus', 'Group Friendly'],
-          timeSlot: 'Afternoon'
+          timeSlot: 'Afternoon',
+          image_url: massage.image_url
         });
         
         if (sauna) recoveryOptions.push({
@@ -4920,7 +4958,8 @@ async searchServicesForConversation(conversation) {
           price_per_person: sauna.price_cad ? Math.round(sauna.price_cad / groupSize) : null,
           duration: sauna.duration_hours ? `${sauna.duration_hours}h` : '3-4h',
           features: ['Mobile Setup', 'Sauna & Cold Plunge', 'Recovery Experience', 'At Your Location'],
-          timeSlot: 'Afternoon'
+          timeSlot: 'Afternoon',
+          image_url: sauna.image_url
         });
 
         // Fallback options if services not found in database
@@ -4932,7 +4971,8 @@ async searchServicesForConversation(conversation) {
           price_per_person: null,
           duration: '2-3h',
           features: ['On-Site Service', 'Professional Therapists', 'Recovery Focus'],
-          timeSlot: 'Afternoon'
+          timeSlot: 'Afternoon',
+          image_url: massage?.image_url
         });
         
         if (!sauna) recoveryOptions.push({
@@ -4943,7 +4983,8 @@ async searchServicesForConversation(conversation) {
           price_per_person: null,
           duration: '3-4h',
           features: ['Mobile Setup', 'Sauna & Cold Plunge', 'Recovery Experience'],
-          timeSlot: 'Afternoon'
+          timeSlot: 'Afternoon',
+          image_url: sauna?.image_url
         });
 
         return {
