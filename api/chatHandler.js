@@ -4421,6 +4421,9 @@ async searchServicesForConversation(conversation) {
     if (dow === 6) { // Saturday
       return await this.promptGuidedSaturday(conversation, dayIndex);
     }
+    if (dow === 0) { // Sunday
+      return await this.promptGuidedSunday(conversation, dayIndex);
+    }
     return null;
   }
 
@@ -4601,6 +4604,23 @@ async searchServicesForConversation(conversation) {
     return {
       response: "For Saturday, do you want start off with a Booze Cruise, or another activity?",
       interactive: { type: 'guided_cards', options: lakeOptions }
+    };
+  }
+
+  async promptGuidedSunday(conversation, dayIndex) {
+    // Set up guided state for Sunday
+    conversation.dayByDayPlanning.guided ||= {};
+    conversation.dayByDayPlanning.guided[dayIndex] = { step: 'sunday_planning', selections: {} };
+
+    return {
+      response: "Alright so for Sunday, do you want to plan anything, or keep it open?",
+      interactive: {
+        type: 'buttons',
+        buttons: [
+          { text: 'Yes, plan Sunday', value: 'sunday_plan_yes', style: 'primary' },
+          { text: 'No, keep it open', value: 'sunday_plan_no', style: 'secondary' }
+        ]
+      }
     };
   }
 
@@ -4799,6 +4819,188 @@ async searchServicesForConversation(conversation) {
       }
     }
 
+    // Sunday flow
+    if (g.step === 'sunday_planning') {
+      if (userMessage === 'sunday_plan_yes') {
+        // Move to guided Sunday breakfast step
+        g.step = 'sunday_breakfast';
+        
+        return {
+          response: "Perfect! Sunday will be centered around recovery. Do you want to start the day with Breakfast Taco Catering?",
+          interactive: {
+            type: 'buttons',
+            buttons: [
+              { text: 'Yes, breakfast tacos', value: 'sunday_breakfast_yes', style: 'primary' },
+              { text: 'No, skip breakfast', value: 'sunday_breakfast_no', style: 'secondary' }
+            ]
+          }
+        };
+      } else if (userMessage === 'sunday_plan_no') {
+        // User wants to keep Sunday open - create an empty plan
+        g.selections.planning = 'no_planning';
+        
+        // Create an empty plan for Sunday
+        conversation.dayByDayPlanning.currentDayPlan = {
+          selectedServices: [],
+          dayTheme: 'Recovery Day',
+          logisticsNotes: 'Keeping Sunday open for recovery and departure'
+        };
+
+        // Clear guided state for this day
+        delete conversation.dayByDayPlanning.guided[idx];
+        
+        // Check if this is the last day
+        const totalDays = conversation.dayByDayPlanning?.totalDays || 
+                         this.calculateDuration(conversation.facts.startDate?.value, conversation.facts.endDate?.value) || 1;
+        const isLastDay = (idx + 1) === totalDays;
+        
+        if (isLastDay) {
+          return { 
+            response: 'Sunday is kept open for recovery. Ready to finalize the itinerary?', 
+            interactive: {
+              type: 'buttons',
+              buttons: [
+                { text: 'Yes, finalize', value: 'finalize_yes', style: 'primary' },
+                { text: 'No, make changes', value: 'finalize_no', style: 'secondary' }
+              ]
+            }
+          };
+        } else {
+          return { 
+            response: 'Sunday is kept open for recovery. Ready for the next day?', 
+            interactive: {
+              type: 'buttons',
+              buttons: [
+                { text: 'Yes, next day', value: 'next_day_yes', style: 'primary' },
+                { text: 'No, make changes', value: 'next_day_no', style: 'secondary' }
+              ]
+            }
+          };
+        }
+      }
+    }
+
+    // Sunday breakfast step
+    if (g.step === 'sunday_breakfast') {
+      if (userMessage === 'sunday_breakfast_yes' || userMessage === 'sunday_breakfast_no') {
+        g.selections.breakfast = userMessage;
+        g.step = 'sunday_recovery';
+        
+        // Update current day plan immediately
+        try {
+          const plan = await this.buildGuidedDayPlan(conversation, idx, 'sunday');
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+
+        // Build recovery options with actual service details
+        const svc = conversation.availableServices || [];
+        const groupSize = conversation.facts?.groupSize?.value || 8;
+        
+        const massage = svc.find(s => /massage/i.test(`${s.name||''} ${s.description||''}`));
+        const sauna = svc.find(s => /sauna|cold\s*plunge/i.test(`${s.name||''} ${s.description||''}`));
+
+        const recoveryOptions = [];
+        
+        if (massage) recoveryOptions.push({
+          value: 'sunday_recovery_massage',
+          title: 'On-Site Chair Massages',
+          description: massage.itinerary_description || massage.description || 'Professional massage therapists come to your location for relaxing chair massages',
+          price_cad: massage.price_cad,
+          price_per_person: massage.price_cad ? Math.round(massage.price_cad / groupSize) : null,
+          duration: massage.duration_hours ? `${massage.duration_hours}h` : '2-3h',
+          features: ['On-Site Service', 'Professional Therapists', 'Recovery Focus', 'Group Friendly'],
+          timeSlot: 'Afternoon'
+        });
+        
+        if (sauna) recoveryOptions.push({
+          value: 'sunday_recovery_sauna',
+          title: 'Sauna & Cold Plunge Rental',
+          description: sauna.itinerary_description || sauna.description || 'Mobile sauna and cold plunge setup delivered to your location for the ultimate recovery experience',
+          price_cad: sauna.price_cad,
+          price_per_person: sauna.price_cad ? Math.round(sauna.price_cad / groupSize) : null,
+          duration: sauna.duration_hours ? `${sauna.duration_hours}h` : '3-4h',
+          features: ['Mobile Setup', 'Sauna & Cold Plunge', 'Recovery Experience', 'At Your Location'],
+          timeSlot: 'Afternoon'
+        });
+
+        // Fallback options if services not found in database
+        if (!massage) recoveryOptions.push({
+          value: 'sunday_recovery_massage',
+          title: 'On-Site Chair Massages',
+          description: 'Professional massage therapists come to your location for relaxing chair massages',
+          price_cad: null,
+          price_per_person: null,
+          duration: '2-3h',
+          features: ['On-Site Service', 'Professional Therapists', 'Recovery Focus'],
+          timeSlot: 'Afternoon'
+        });
+        
+        if (!sauna) recoveryOptions.push({
+          value: 'sunday_recovery_sauna',
+          title: 'Sauna & Cold Plunge Rental',
+          description: 'Mobile sauna and cold plunge setup delivered to your location for the ultimate recovery experience',
+          price_cad: null,
+          price_per_person: null,
+          duration: '3-4h',
+          features: ['Mobile Setup', 'Sauna & Cold Plunge', 'Recovery Experience'],
+          timeSlot: 'Afternoon'
+        });
+
+        return {
+          response: "Great! Now for recovery, which sounds better for your Sunday?",
+          interactive: {
+            type: 'guided_cards',
+            options: recoveryOptions
+          }
+        };
+      }
+    }
+
+    // Sunday recovery step
+    if (g.step === 'sunday_recovery') {
+      if (userMessage === 'sunday_recovery_massage' || userMessage === 'sunday_recovery_sauna') {
+        g.selections.recovery = userMessage;
+
+        // Update current day plan immediately
+        try {
+          const plan = await this.buildGuidedDayPlan(conversation, idx, 'sunday');
+          conversation.dayByDayPlanning.currentDayPlan = plan;
+        } catch (_) {}
+
+        // Clear guided state for this day
+        delete conversation.dayByDayPlanning.guided[idx];
+        
+        // Check if this is the last day
+        const totalDays = conversation.dayByDayPlanning?.totalDays || 
+                         this.calculateDuration(conversation.facts.startDate?.value, conversation.facts.endDate?.value) || 1;
+        const isLastDay = (idx + 1) === totalDays;
+        
+        if (isLastDay) {
+          return { 
+            response: 'Perfect! Sunday recovery plan is set. Ready to finalize the itinerary?', 
+            interactive: {
+              type: 'buttons',
+              buttons: [
+                { text: 'Yes, finalize', value: 'finalize_yes', style: 'primary' },
+                { text: 'No, make changes', value: 'finalize_no', style: 'secondary' }
+              ]
+            }
+          };
+        } else {
+          return { 
+            response: 'Sunday recovery plan is set. Ready for the next day?', 
+            interactive: {
+              type: 'buttons',
+              buttons: [
+                { text: 'Yes, next day', value: 'next_day_yes', style: 'primary' },
+                { text: 'No, make changes', value: 'next_day_no', style: 'secondary' }
+              ]
+            }
+          };
+        }
+      }
+    }
+
     return null;
   }
 
@@ -4899,6 +5101,34 @@ async searchServicesForConversation(conversation) {
       }
     }
 
-    return { selectedServices: sel, dayTheme: kind === 'friday' ? 'Friday Plan' : 'Saturday Plan', logisticsNotes: '' };
+    if (kind === 'sunday') {
+      if (selections.breakfast === 'sunday_breakfast_yes') {
+        const breakfast = pickBy(s => /breakfast\s*taco/i.test(s.name || ''));
+        if (breakfast) sel.push({
+          serviceId: String(breakfast.id), serviceName: breakfast.itinerary_name || breakfast.name,
+          timeSlot: 'morning', reason: 'Recovery breakfast taco catering',
+          price_cad: breakfast.price_cad, price_usd: breakfast.price_usd, duration_hours: breakfast.duration_hours
+        });
+      }
+
+      if (selections.recovery === 'sunday_recovery_massage') {
+        const massage = pickBy(s => /massage/i.test(`${s.name||''} ${s.description||''}`));
+        if (massage) sel.push({
+          serviceId: String(massage.id), serviceName: massage.itinerary_name || massage.name,
+          timeSlot: 'afternoon', reason: 'On-site chair massages for recovery',
+          price_cad: massage.price_cad, price_usd: massage.price_usd, duration_hours: massage.duration_hours
+        });
+      } else if (selections.recovery === 'sunday_recovery_sauna') {
+        const sauna = pickBy(s => /sauna|cold\s*plunge/i.test(`${s.name||''} ${s.description||''}`));
+        if (sauna) sel.push({
+          serviceId: String(sauna.id), serviceName: sauna.itinerary_name || sauna.name,
+          timeSlot: 'afternoon', reason: 'Sauna & cold plunge rental for recovery',
+          price_cad: sauna.price_cad, price_usd: sauna.price_usd, duration_hours: sauna.duration_hours
+        });
+      }
+    }
+
+    const dayTheme = kind === 'friday' ? 'Friday Plan' : (kind === 'saturday' ? 'Saturday Plan' : 'Sunday Recovery');
+    return { selectedServices: sel, dayTheme, logisticsNotes: '' };
   }
 }
