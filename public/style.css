@@ -11,6 +11,14 @@ body {
     overflow: hidden;
 }
 
+@media (max-width: 768px) {
+    body {
+        overflow: auto;
+        height: auto;
+        min-height: 100dvh;
+    }
+}
+
 /* Background image container */
 .background-container {
     position: fixed;
@@ -559,15 +567,15 @@ body {
 /* Responsive button styling */
 @media (max-width: 768px) {
     .message-interactive {
-        gap: 6px;
+        gap: 8px;
     }
     
     .interactive-btn {
-        padding: 10px 14px;
-        font-size: 14px;
-        min-width: 50px;
+        padding: 12px 20px;
+        font-size: 15px;
+        min-width: 80px;
         flex: 1;
-        max-width: 120px;
+        max-width: 180px;
     }
 }
 
@@ -729,6 +737,7 @@ body {
     overflow: hidden;
 }
 
+
 .itinerary-header {
     padding: 20px;
     background: rgba(255, 255, 255, 0.95);
@@ -818,6 +827,13 @@ body {
 @media (max-width: 768px) {
     .itinerary-section:not(.collapsed) .itinerary-content {
         transition-delay: 0.3s;
+    }
+    
+    /* Fast mobile modal override - no delay for mobile modal */
+    .itinerary-section.mobile-modal-open .itinerary-content {
+        opacity: 1 !important;
+        transition: none !important;
+        transition-delay: 0s !important;
     }
 }
 
@@ -1164,15 +1180,74 @@ body {
         font-size: 12px;
     }
     
+    /* Hide itinerary section completely on mobile by default */
     .itinerary-section {
-        width: 100%;
-        height: 300px;
-        border-left: none;
-        border-top: 1px solid #e5e5e5;
+        display: none !important;
     }
     
-    .itinerary-section.collapsed {
-        height: 50px;
+    /* FIXED: Show itinerary as modal overlay when mobile summary is expanded */
+    .itinerary-section.mobile-modal-open {
+        display: flex !important;
+        position: fixed;
+        top: 60px; /* Below mobile summary */
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100% !important;
+        height: auto !important;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(10px);
+        z-index: 999;
+        border: none;
+        border-top: 1px solid rgba(229, 229, 229, 0.5);
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+        /* Fast mobile animation - override desktop transitions */
+        transition: none !important;
+        animation: slideUpMobileModal 0.15s ease-out;
+    }
+    
+    /* Fast closing animation for mobile modal */
+    .itinerary-section.mobile-modal-closing {
+        display: flex !important;
+        position: fixed;
+        top: 60px;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100% !important;
+        height: auto !important;
+        background: rgba(255, 255, 255, 0.98);
+        backdrop-filter: blur(10px);
+        z-index: 999;
+        border: none;
+        border-top: 1px solid rgba(229, 229, 229, 0.5);
+        box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.1);
+        transition: none !important;
+        animation: slideDownMobileModal 0.12s ease-in;
+    }
+    
+    .itinerary-section.mobile-modal-open .itinerary-header {
+        display: none; /* Hide header in modal mode */
+    }
+    
+    .itinerary-section.mobile-modal-open .itinerary-content {
+        padding: 20px;
+        height: 100%;
+        overflow-y: auto;
+        /* Fast content fade-in for mobile modal */
+        opacity: 1;
+        transition: opacity 0.1s ease !important;
+        transition-delay: 0.05s !important;
+    }
+    
+    .itinerary-section.mobile-modal-closing .itinerary-content {
+        padding: 20px;
+        height: 100%;
+        overflow-y: auto;
+        /* Fast content fade-out for closing mobile modal */
+        opacity: 0;
+        transition: opacity 0.08s ease !important;
+        transition-delay: 0s !important;
     }
     
     .chat-container {
@@ -1340,6 +1415,164 @@ body {
     opacity: 1 !important;
     transform: none !important;
     animation: none !important;
+}
+
+/* Mobile Itinerary Summary - Only visible on mobile */
+.mobile-itinerary-summary {
+    display: none;
+    background: rgba(255, 255, 255, 0.98);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(229, 229, 229, 0.5);
+    padding: 12px 20px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.mobile-itinerary-summary:hover {
+    background: rgba(248, 250, 252, 0.98);
+}
+
+.mobile-summary-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 720px;
+    margin: 0 auto;
+}
+
+.mobile-summary-left {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.mobile-summary-destination {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1e293b;
+    line-height: 1.2;
+}
+
+.mobile-summary-dates {
+    font-size: 14px;
+    color: #64748b;
+    line-height: 1.2;
+}
+
+.mobile-summary-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mobile-summary-price {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.mobile-summary-chevron {
+    color: #64748b;
+    transition: transform 0.2s ease;
+}
+
+.mobile-itinerary-summary.expanded .mobile-summary-chevron {
+    transform: rotate(180deg);
+}
+
+/* Show mobile summary only on mobile when itinerary data is available */
+@media (max-width: 768px) {
+    .mobile-itinerary-summary.has-data {
+        display: block;
+        opacity: 0;
+        transform: translateY(-100%);
+        animation: slideDownMobileSummary 0.4s ease-out 0.3s forwards;
+    }
+    
+    /* Adjust body and app container to account for sticky mobile summary */
+    body.has-mobile-summary {
+        padding-top: 60px; /* Approximate height of mobile summary */
+    }
+    
+    .app-container.has-mobile-summary {
+        padding-top: 60px;
+    }
+    
+    /* Hide the bottom itinerary section when mobile summary is active */
+    .app-container.has-mobile-summary .itinerary-section:not(.mobile-modal-open) {
+        display: none !important;
+      }
+    /* Adjust chat messages padding to account for mobile summary */
+    .chat-section .chat-messages {
+        padding-top: 10px;
+    }
+    
+    /* Adjust chat header to account for mobile summary */
+    .app-container.has-mobile-summary .chat-header {
+        margin-top: 8px;
+    }
+}
+
+/* Slide down animation for mobile summary */
+@keyframes slideDownMobileSummary {
+    from {
+        opacity: 0;
+        transform: translateY(-100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Fast slide up animation for mobile modal */
+@keyframes slideUpMobileModal {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Fast slide down animation for closing mobile modal */
+@keyframes slideDownMobileModal {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+}
+
+/* Ensure mobile summary never shows on desktop */
+@media (min-width: 769px) {
+    .mobile-itinerary-summary {
+        display: none !important;
+    }
+    
+    /* Remove mobile summary classes on desktop */
+    body.has-mobile-summary {
+        padding-top: 0;
+    }
+    
+    .app-container.has-mobile-summary {
+        padding-top: 0;
+    }
+    
+    .app-container.has-mobile-summary .itinerary-section {
+        display: flex !important;
+    }
 }
 
 /* Date Selector Styles */

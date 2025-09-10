@@ -37,6 +37,11 @@ class ChatInterface {
         // Store global reference for onclick handlers
         window.chatInterface = this;
         
+        // Mobile itinerary summary elements
+        this.mobileSummary = document.getElementById('mobile-itinerary-summary');
+        this.mobileSummaryContent = document.getElementById('mobile-summary-content');
+        this.appContainer = document.querySelector('.app-container');
+        
         this.init();
     }
 
@@ -129,14 +134,26 @@ class ChatInterface {
         if (this.toggleButton && this.itinerarySidebar) {
             this.toggleButton.textContent = this.itinerarySidebar.classList.contains('collapsed') ? '☰' : '×';
         }
+        
+        // Ensure itinerary is collapsed on mobile
+        const isMobile = window.innerWidth <= 768;
+        if (isMobile && this.itinerarySidebar) {
+            this.itinerarySidebar.classList.add('collapsed');
+            this.itinerarySidebar.classList.remove('mobile-modal-open');
+        }
+        
         // Auto-focus the message input when page loads
         this.messageInput.focus();
         // Don't show welcome message initially - will show after first user message
 
         // Ensure correct bottom padding for messages on initial load and on resize
         const adjustPadding = () => this.updateMessagesBottomPadding();
-        window.addEventListener('resize', adjustPadding, { passive: true });
-        window.addEventListener('orientationchange', adjustPadding, { passive: true });
+        const handleResize = () => {
+            adjustPadding();
+            this.handleMobileSummaryResize();
+        };
+        window.addEventListener('resize', handleResize, { passive: true });
+        window.addEventListener('orientationchange', handleResize, { passive: true });
         requestAnimationFrame(adjustPadding);
     }
 
@@ -168,6 +185,11 @@ class ChatInterface {
             this.toggleButton.addEventListener('click', () => this.toggleSidebar());
         }
 
+        // Mobile summary toggle (mobile only)
+        if (this.mobileSummary) {
+            this.mobileSummary.addEventListener('click', () => this.toggleMobileSummary());
+        }
+
         // If user manually scrolls up, do not force autoscroll until near bottom again
         let isUserNearBottom = true;
         const nearBottomThreshold = 120; // px
@@ -188,10 +210,162 @@ class ChatInterface {
 
     ensureSidebarVisible() {
         if (!this.itinerarySidebar || !this.toggleButton) return;
+        
+        // Don't show sidebar on mobile - use mobile summary instead
+        const isMobile = window.innerWidth <= 768;
+        if (isMobile) return;
+        
         if (this.itinerarySidebar.classList.contains('collapsed')) {
             this.itinerarySidebar.classList.remove('collapsed');
         }
         this.toggleButton.textContent = '×';
+    }
+
+    toggleMobileSummary() {
+        if (!this.mobileSummary || !this.itinerarySidebar) return;
+        
+        // Check if we're on mobile
+        const isMobile = window.innerWidth <= 768;
+        if (!isMobile) return;
+        
+        // Toggle the expanded state
+        const isExpanding = !this.mobileSummary.classList.contains('expanded');
+        this.mobileSummary.classList.toggle('expanded');
+        
+        if (isExpanding) {
+            // Show itinerary as modal overlay with fast animation
+            this.itinerarySidebar.classList.remove('collapsed', 'mobile-modal-closing');
+            this.itinerarySidebar.classList.add('mobile-modal-open');
+        } else {
+            // Hide itinerary modal with fast closing animation
+            this.itinerarySidebar.classList.remove('mobile-modal-open');
+            this.itinerarySidebar.classList.add('mobile-modal-closing');
+            
+            // After closing animation completes, hide completely
+            setTimeout(() => {
+                if (!this.mobileSummary.classList.contains('expanded')) {
+                    this.itinerarySidebar.classList.remove('mobile-modal-closing');
+                    this.itinerarySidebar.classList.add('collapsed');
+                }
+            }, 120); // Match the 0.12s animation duration
+        }
+    }
+
+    updateMobileSummary() {
+        if (!this.mobileSummary || !this.tripFacts) return;
+        
+        // Check if we're on mobile
+        const isMobile = window.innerWidth <= 768;
+        if (!isMobile) return;
+        
+        // Extract facts for display
+        const destination = this.tripFacts.destination?.value || 'Your Destination';
+        const startDate = this.tripFacts.startDate?.value || null;
+        const endDate = this.tripFacts.endDate?.value || null;
+        
+        // Format dates using proper local date parsing
+        let dateRange = 'Dates TBD';
+        if (startDate && endDate) {
+            const start = this.formatDateWithConditionalYear(startDate, { month: 'short', day: 'numeric' });
+            const end = this.formatDateWithConditionalYear(endDate, { month: 'short', day: 'numeric' });
+            
+            // Check if start and end dates are the same (single day event)
+            if (startDate === endDate) {
+                dateRange = start;
+            } else {
+                dateRange = `${start} - ${end}`;
+            }
+        } else if (startDate && !endDate) {
+            // Only start date provided
+            const start = this.formatDateWithConditionalYear(startDate, { month: 'short', day: 'numeric' });
+            dateRange = start;
+        }
+        
+        // Calculate total price per person
+        const priceInfo = this.calculateTotalPricePerPerson();
+        const priceText = priceInfo.hasServices 
+            ? `$${priceInfo.total.toLocaleString()}/person`
+            : 'Price TBD';
+        
+        // Update the mobile summary content
+        const destinationEl = this.mobileSummary.querySelector('.mobile-summary-destination');
+        const datesEl = this.mobileSummary.querySelector('.mobile-summary-dates');
+        const priceEl = this.mobileSummary.querySelector('.mobile-summary-price');
+        
+        if (destinationEl) destinationEl.textContent = destination;
+        if (datesEl) datesEl.textContent = dateRange;
+        if (priceEl) priceEl.textContent = priceText;
+        
+        // Show the mobile summary
+        this.showMobileSummary();
+    }
+
+    showMobileSummary() {
+        if (!this.mobileSummary) return;
+        
+        // Check if we're on mobile
+        const isMobile = window.innerWidth <= 768;
+        if (!isMobile) return;
+        
+        // Add the has-data class to trigger display and animation
+        this.mobileSummary.classList.add('has-data');
+        this.mobileSummary.style.display = 'block';
+        
+        // Add classes to body and app container for layout adjustments
+        document.body.classList.add('has-mobile-summary');
+        if (this.appContainer) {
+            this.appContainer.classList.add('has-mobile-summary');
+        }
+    }
+
+    hideMobileSummary() {
+        if (!this.mobileSummary) return;
+        
+        this.mobileSummary.classList.remove('has-data');
+        this.mobileSummary.style.display = 'none';
+        
+        // Remove classes from body and app container
+        document.body.classList.remove('has-mobile-summary');
+        if (this.appContainer) {
+            this.appContainer.classList.remove('has-mobile-summary');
+        }
+    }
+
+    handleMobileSummaryResize() {
+        if (!this.mobileSummary || !this.tripFacts) return;
+        
+        const isMobile = window.innerWidth <= 768;
+        
+        if (isMobile && this.tripFacts) {
+            // Show mobile summary on mobile if we have trip data
+            this.updateMobileSummary();
+            // Ensure itinerary is in proper mobile state
+            if (this.itinerarySidebar) {
+                this.itinerarySidebar.classList.add('collapsed');
+                if (!this.mobileSummary.classList.contains('expanded')) {
+                    this.itinerarySidebar.classList.remove('mobile-modal-open');
+                }
+            }
+        } else {
+            // Hide mobile summary on desktop and clean up classes
+            this.hideMobileSummary();
+            // Ensure desktop classes are clean
+            document.body.classList.remove('has-mobile-summary');
+            if (this.appContainer) {
+                this.appContainer.classList.remove('has-mobile-summary');
+            }
+            // Clean up mobile modal state
+            if (this.itinerarySidebar) {
+                this.itinerarySidebar.classList.remove('mobile-modal-open');
+                // Reset to normal desktop behavior
+                if (this.hasShownSidebar) {
+                    this.itinerarySidebar.classList.remove('collapsed');
+                }
+            }
+            if (this.mobileSummary) {
+                this.mobileSummary.classList.remove('expanded');
+            }
+        }
     }
 
     fadeOutBackground() {
@@ -1267,6 +1441,9 @@ class ChatInterface {
         // Update the content
         this.itineraryContent.innerHTML = summaryHtml;
         this.hasShownTripSummaryOnce = true;
+        
+        // Update mobile summary
+        this.updateMobileSummary();
     }
 
     updateItinerary() {
@@ -1428,6 +1605,9 @@ class ChatInterface {
         if (this.tripFacts) {
             this.hasShownTripSummaryOnce = true;
         }
+        
+        // Update mobile summary
+        this.updateMobileSummary();
     }
 
     calculateDayDate(dayIndex) {
