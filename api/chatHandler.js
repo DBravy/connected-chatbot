@@ -4616,7 +4616,7 @@ async searchServicesForConversation(conversation) {
       description: strip.itinerary_description || strip.description || "Premium gentlemen's club experience for the bachelor party",
       ...this.calculatePricing(strip, groupSize),
       duration: strip.duration_hours ? `${strip.duration_hours}h` : '3-4h',
-      features: ['VIP', 'Bachelor Party'],
+      features: ['VIP Access', 'Bachelor Party', 'Entertainment', 'Late Night'],
       timeSlot: 'Night',
       image_url: strip.image_url
     });
@@ -5599,4 +5599,93 @@ async searchServicesForConversation(conversation) {
     const dayTheme = kind === 'friday' ? 'Friday Plan' : (kind === 'saturday' ? 'Saturday Plan' : 'Sunday Recovery');
     return { selectedServices: sel, dayTheme, logisticsNotes: '' };
   }
+
+  // Handle service removal from itinerary
+  async handleServiceRemoval(conversationId, message, snapshot, serviceRemovalData) {
+    try {
+      // Load conversation state
+      const conversation = await this.loadConversationState(conversationId, snapshot);
+      
+      const { serviceId, serviceName, dayIndex } = serviceRemovalData;
+      
+      if (!conversation.selectedServices || !Array.isArray(conversation.selectedServices)) {
+        return {
+          response: "No itinerary found to modify.",
+          snapshot: this.createSnapshot(conversation)
+        };
+      }
+
+      // Check if the day exists
+      if (dayIndex < 0 || dayIndex >= conversation.selectedServices.length) {
+        return {
+          response: `Day ${dayIndex + 1} not found in your itinerary.`,
+          snapshot: this.createSnapshot(conversation)
+        };
+      }
+
+      const dayData = conversation.selectedServices[dayIndex];
+      if (!dayData || !Array.isArray(dayData.selectedServices)) {
+        return {
+          response: `No services found for Day ${dayIndex + 1}.`,
+          snapshot: this.createSnapshot(conversation)
+        };
+      }
+
+      // Find the service to remove
+      const serviceToRemove = dayData.selectedServices.find(s => 
+        String(s.serviceId) === String(serviceId) || 
+        s.serviceName === serviceName
+      );
+
+      if (!serviceToRemove) {
+        return {
+          response: `Service "${serviceName}" not found in Day ${dayIndex + 1}.`,
+          snapshot: this.createSnapshot(conversation)
+        };
+      }
+
+      // Remove the service from the day
+      dayData.selectedServices = dayData.selectedServices.filter(s => 
+        String(s.serviceId) !== String(serviceId) && 
+        s.serviceName !== serviceName
+      );
+
+      // Update used services tracking
+      this.ensureUsedServicesSet(conversation);
+      if (serviceToRemove.serviceId) {
+        conversation.dayByDayPlanning.usedServices.delete(String(serviceToRemove.serviceId));
+      }
+
+      // Save the updated conversation state
+      await this.saveConversationState(conversationId, conversation);
+
+      // Generate response
+      const remainingCount = dayData.selectedServices.length;
+      let responseMessage = `Removed ${serviceName} from Day ${dayIndex + 1}.`;
+      
+      if (remainingCount === 0) {
+        responseMessage += ` Day ${dayIndex + 1} now has no activities. Would you like me to suggest some alternatives?`;
+      } else if (remainingCount === 1) {
+        responseMessage += ` You now have 1 activity remaining for that day.`;
+      } else {
+        responseMessage += ` You now have ${remainingCount} activities remaining for that day.`;
+      }
+
+      return {
+        response: responseMessage,
+        snapshot: this.createSnapshot(conversation),
+        facts: this.extractFacts(conversation),
+        itinerary: Array.isArray(conversation.selectedServices) ? conversation.selectedServices : []
+      };
+
+    } catch (error) {
+      console.error('Error handling service removal:', error);
+      return {
+        response: "Sorry, there was an error removing the service. Please try again.",
+        snapshot: snapshot
+      };
+    }
+  }
+
+  // Generate a simple edit confirmation instead of full day presentation
 }

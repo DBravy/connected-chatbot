@@ -1197,6 +1197,95 @@ class ChatInterface {
         }
     }
 
+    // Remove a service from the itinerary
+    async removeService(serviceId, serviceName, dayIndex) {
+        if (!serviceId || dayIndex === undefined) {
+            console.error('Missing serviceId or dayIndex for service removal');
+            return;
+        }
+
+        // Show confirmation dialog
+        const confirmDelete = confirm(`Are you sure you want to remove "${serviceName}" from Day ${dayIndex + 1}?`);
+        if (!confirmDelete) {
+            return;
+        }
+
+        // Disable the button to prevent multiple clicks
+        const serviceCard = document.querySelector(`[data-service-id="${serviceId}"]`);
+        let deleteButton = null;
+        if (serviceCard) {
+            deleteButton = serviceCard.querySelector('.service-action-btn');
+            if (deleteButton) {
+                deleteButton.disabled = true;
+                deleteButton.style.opacity = '0.5';
+            }
+        }
+
+        try {
+            // Show loading indicator
+            this.showLoadingIndicator();
+
+            // Create a removal message for the backend
+            const removalMessage = `Remove ${serviceName} from Day ${dayIndex + 1}`;
+
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversationId: this.conversationId,
+                    message: removalMessage,
+                    snapshot: this.currentState,
+                    isServiceRemoval: true,
+                    serviceRemovalData: {
+                        serviceId: serviceId,
+                        serviceName: serviceName,
+                        dayIndex: dayIndex
+                    }
+                })
+            });
+
+            const result = await response.json();
+            this.currentState = result.snapshot || this.currentState;
+
+            // Hide loading indicator before showing response
+            this.hideLoadingIndicator();
+
+            // Add a user message showing the removal
+            this.addMessage(`Removed ${serviceName} from Day ${dayIndex + 1}`, 'user');
+
+            // Check if response includes interactive elements
+            if (result.interactive) {
+                this.addInteractiveMessage(result.response, 'bot', result.interactive);
+            } else if (result.response) {
+                this.addMessage(result.response, 'bot');
+            }
+
+            // Update itinerary if we have facts and are in planning phase
+            if (result.facts) {
+                this.tripFacts = result.facts;
+                this.updateTripSummary();
+            }
+
+            // Update itinerary if we received itinerary data
+            if (result.itinerary) {
+                this.currentItinerary = result.itinerary;
+                this.updateItinerary();
+            }
+
+        } catch (error) {
+            console.error('Error removing service:', error);
+            // Hide loading indicator on error
+            this.hideLoadingIndicator();
+            this.addMessage('Sorry, something went wrong while removing the service. Please try again.', 'bot');
+            
+            // Re-enable the button on error
+            if (deleteButton) {
+                deleteButton.disabled = false;
+                deleteButton.style.opacity = '1';
+            }
+        }
+    }
+
     // Update the main sendMessage method to support interactive responses
     async sendMessage() {
         const message = this.messageInput.value.trim();
@@ -1502,8 +1591,8 @@ class ChatInterface {
         }
         
         // Add itinerary days
-        this.currentItinerary.forEach((day, index) => {
-            const dayDate = this.calculateDayDate(index);
+        this.currentItinerary.forEach((day, dayIndex) => {
+            const dayDate = this.calculateDayDate(dayIndex);
             const services = this.dedupeServices(day.selectedServices || []);
             const bookingCount = services.length;
             const bookingText = bookingCount === 0 ? 'No bookings' : 
@@ -1547,13 +1636,7 @@ class ChatInterface {
                             <div class="service-time">${timeSlot || ''}</div>
                             ${statusBadge}
                             <div class="service-actions">
-                              <button class="service-action-btn" title="Edit service">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                  <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                </svg>
-                              </button>
-                              <button class="service-action-btn" title="Remove service">
+                              <button class="service-action-btn" title="Remove service" onclick="chatInterface.removeService('${service.serviceId || ''}', '${serviceName.replace(/'/g, "\\'")}', ${dayIndex})">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                   <path d="M3 6h18"/>
                                   <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
