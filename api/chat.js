@@ -20,31 +20,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { 
-      conversationId, 
-      message, 
-      snapshot, 
-      isServiceRemoval, 
-      serviceRemovalData,
-      isDateAndGroupResponse,
-      isBudgetResponse,
-      isButtonResponse
-    } = req.body;
+    const { conversationId, message, snapshot } = req.body;
     
     if (!conversationId || !message) {
       res.status(400).json({ error: 'Missing required fields' });
-      return;
-    }
-
-    // Handle service removal requests
-    if (isServiceRemoval && serviceRemovalData) {
-      const result = await chatHandler.handleServiceRemoval(
-        conversationId, 
-        message, 
-        snapshot, 
-        serviceRemovalData
-      );
-      res.status(200).json(result);
       return;
     }
 

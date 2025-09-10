@@ -989,7 +989,6 @@ body {
 .service-actions {
     display: flex;
     gap: 4px;
-    justify-content: center;
 }
 
 .service-action-btn {
@@ -1006,26 +1005,14 @@ body {
 }
 
 .service-action-btn:hover {
-    background: #fef2f2;
-    border-color: #fecaca;
-    color: #dc2626;
-}
-
-.service-action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-    pointer-events: none;
+    background: #f8fafc;
+    border-color: #cbd5e1;
 }
 
 .service-action-btn svg {
-    width: 14px;
-    height: 14px;
+    width: 8px;
+    height: 8px;
     color: #64748b;
-    transition: color 0.2s;
-}
-
-.service-action-btn:hover svg {
-    color: #dc2626;
 }
 
 .service-main {
