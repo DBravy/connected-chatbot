@@ -1359,7 +1359,7 @@ class ChatInterface {
                     const hasUsd = typeof service.price_usd === 'number' && !isNaN(service.price_usd);
                     
                     // Assume price_cad and price_usd are total prices, calculate per-person price
-                    const totalPrice = hasCad ? service.price_cad : (hasUsd ? service.price_usd : this.generateMockPrice(service.serviceName) * groupSize);
+                    const totalPrice = hasCad ? service.price_cad : (hasUsd ? service.price_usd : 0);
                     const currency = hasCad ? 'CAD' : (hasUsd ? 'USD' : 'USD');
                     const perPersonPrice = Math.round(totalPrice / groupSize);
                     
@@ -1547,9 +1547,8 @@ class ChatInterface {
                     serviceTotal = service.price_usd;
                     hasUsdServices = true;
                 } else {
-                    // Use mock price if no real price available
-                    serviceTotal = this.generateMockPrice(service.serviceName) * groupSize;
-                    hasUsdServices = true;
+                    // Use $0 if no real price available
+                    serviceTotal = 0;
                 }
                 
                 totalPriceSum += serviceTotal;

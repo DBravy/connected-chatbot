@@ -4494,7 +4494,7 @@ async searchServicesForConversation(conversation) {
 
     // Morning: catering (Breakfast Taco Catering) or daytime gun activity
     const breakfast = svc.find(s => /breakfast\s*taco/i.test(s.name || ''));
-    const gunRange = svc.find(s => /(gun|range|shoot|clay|skeet)/i.test(`${s.name||''} ${s.description||''}`));
+    const gunRange = svc.find(s => /(gun\s*range|indoor.*range|outdoor.*range|clay.*shoot|skeet.*shoot)/i.test(`${s.name||''} ${s.description||''}`) && !/hog|hunt/i.test(`${s.name||''} ${s.description||''}`));
 
     const morningOptions = [];
     if (breakfast) morningOptions.push({
@@ -4522,8 +4522,8 @@ async searchServicesForConversation(conversation) {
     if (!morningOptions.length) return null;
 
     // Build sub-options for shooting activity
-    const clay = svc.find(s => /(clay|skeet)/i.test(`${s.name||''} ${s.description||''}`));
-    const range = svc.find(s => /(gun|range)/i.test(`${s.name||''} ${s.description||''}`));
+    const clay = svc.find(s => /(clay|skeet)/i.test(`${s.name||''} ${s.description||''}`) && !/hog|hunt/i.test(`${s.name||''} ${s.description||''}`));
+    const range = svc.find(s => /(gun\s*range|indoor.*range|outdoor.*range)/i.test(`${s.name||''} ${s.description||''}`) && !/hog|hunt/i.test(`${s.name||''} ${s.description||''}`));
     const hog = svc.find(s => /(hog|hunt|hunting)/i.test(`${s.name||''} ${s.description||''}`));
 
     const shootingSubOptions = [];
@@ -4539,7 +4539,7 @@ async searchServicesForConversation(conversation) {
     });
     if (hog) shootingSubOptions.push({
       value: 'fri_morning_activity_hog',
-      title: 'Hog Hunting',
+      title: 'Hog Hunting + Ranch Lunch',
       description: hog.itinerary_description || hog.description || 'Guided hog hunting experience',
       ...this.calculatePricing(hog, groupSize),
       duration: hog.duration_hours ? `${hog.duration_hours}h` : '4-6h',
@@ -4642,7 +4642,7 @@ async searchServicesForConversation(conversation) {
     const lakeOptions = [];
     if (booze) lakeOptions.push({
       value: 'sat_lake_booze',
-      title: 'mnvis Booze Cruise',
+      title: 'Lake Travis Booze Cruise',
       description: booze.itinerary_description || booze.description || 'Private party boat on the lake',
       ...this.calculatePricing(booze, groupSize),
       duration: booze.duration_hours ? `${booze.duration_hours}h` : '3-4h',
@@ -5273,7 +5273,7 @@ async searchServicesForConversation(conversation) {
           image_url: breakfast.image_url
         });
       } else if (selections.morning === 'fri_morning_activity') {
-        const gunRange = pickBy(s => /(gun|range|shoot|clay|skeet)/i.test(`${s.name||''} ${s.description||''}`));
+        const gunRange = pickBy(s => /(gun\s*range|indoor.*range|outdoor.*range|clay.*shoot|skeet.*shoot)/i.test(`${s.name||''} ${s.description||''}`) && !/hog|hunt/i.test(`${s.name||''} ${s.description||''}`));
         if (gunRange) sel.push({
           serviceId: String(gunRange.id), serviceName: 'Daytime Shooting Activity',
           timeSlot: 'afternoon', reason: (gunRange.itinerary_description || gunRange.description || 'Head out for gun range / clay shooting / hog hunting'),
